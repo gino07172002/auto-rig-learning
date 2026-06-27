@@ -20,6 +20,11 @@ const ToonHumanoidFitter = preload("res://scripts/auto_rig/toon_humanoid_fitter.
 @onready var _preview_label: Label = find_child("PreviewStateLabel", true, false)
 @onready var _preview_container: SubViewportContainer = find_child("PreviewViewportContainer", true, false)
 @onready var _camera: Camera3D = find_child("Camera3D", true, false)
+@onready var _bone_style_option: OptionButton = find_child("BoneStyleOption", true, false)
+
+# Bone overlay display styles, selectable in the preview toolbar.
+enum BoneStyle { LINES, OCTAHEDRAL }
+var _bone_style: int = BoneStyle.LINES
 
 var _analyzer := AutoRigAnalyzer.new()
 var _fitter := ToonHumanoidFitter.new()
@@ -28,6 +33,8 @@ var _skeleton: Skeleton3D
 var _last_report: Dictionary = {}
 var _overlay_mesh_instance: MeshInstance3D
 var _overlay_mesh := ImmediateMesh.new()
+var _line_material: StandardMaterial3D
+var _octa_material: StandardMaterial3D
 var _phase := 0.0
 var _finger_bones: Array[int] = []
 # When the imported model ships its own AnimationPlayer (e.g. a Blender-authored
@@ -55,6 +62,12 @@ func _ready() -> void:
 		_browse_button.pressed.connect(_open_file_dialog)
 	_finger_slider.value_changed.connect(func(_v): _pose_preview(0.0))
 	_pose_slider.value_changed.connect(func(_v): _pose_preview(0.0))
+	if _bone_style_option != null:
+		_bone_style_option.clear()
+		_bone_style_option.add_item("Lines", BoneStyle.LINES)
+		_bone_style_option.add_item("Octahedral (Blender)", BoneStyle.OCTAHEDRAL)
+		_bone_style_option.selected = _bone_style
+		_bone_style_option.item_selected.connect(_on_bone_style_selected)
 	# Drag/zoom the preview: route the container's mouse events to the orbit cam.
 	if _preview_container != null:
 		_preview_container.gui_input.connect(_on_preview_gui_input)
@@ -400,21 +413,45 @@ func _swing_named_bone(bone_name: String, angle: float) -> void:
 
 func _setup_overlay() -> void:
 	_overlay_mesh_instance = MeshInstance3D.new()
-	_overlay_mesh_instance.name = "LiveBoneLines"
+	_overlay_mesh_instance.name = "LiveBoneOverlay"
 	_overlay_mesh_instance.mesh = _overlay_mesh
-	var mat := StandardMaterial3D.new()
-	mat.resource_name = "RigOverlayGreen"
-	mat.albedo_color = Color(0.15, 1.0, 0.48, 0.95)
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.no_depth_test = true
-	_overlay_mesh_instance.material_override = mat
+	# Lines: unshaded green, drawn over the mesh (no depth test) like a debug rig.
+	_line_material = StandardMaterial3D.new()
+	_line_material.resource_name = "RigOverlayGreen"
+	_line_material.albedo_color = Color(0.15, 1.0, 0.48, 0.95)
+	_line_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_line_material.no_depth_test = true
+	# Octahedral: shaded grey solid so the bone cones read as 3D, like Blender.
+	# Drawn over the mesh (no depth test) with back-face culling so the rig is
+	# visible "in front" of the body like Blender's default bone display.
+	_octa_material = StandardMaterial3D.new()
+	_octa_material.resource_name = "RigOverlayOcta"
+	_octa_material.albedo_color = Color(0.62, 0.62, 0.64)
+	_octa_material.cull_mode = BaseMaterial3D.CULL_BACK
+	_octa_material.no_depth_test = true
+	_octa_material.roughness = 0.7
+	_overlay_mesh_instance.material_override = _line_material
 	_rig_overlay_root.add_child(_overlay_mesh_instance)
+
+func _on_bone_style_selected(index: int) -> void:
+	_bone_style = index
+	_overlay_mesh_instance.material_override = _octa_material if _bone_style == BoneStyle.OCTAHEDRAL else _line_material
+	_update_rig_overlay()
 
 func _update_rig_overlay() -> void:
 	if _skeleton == null or _rig_overlay_root == null:
 		return
+	# Each entry is [head_local, tail_local] for one bone (parent joint -> joint).
+	var segments: Array = _bone_segments_local()
 	_overlay_mesh.clear_surfaces()
-	_overlay_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	if _bone_style == BoneStyle.OCTAHEDRAL:
+		_draw_octahedral_bones(segments)
+	else:
+		_draw_line_bones(segments)
+
+# Collects each bone as a [head, tail] pair in _rig_overlay_root local space.
+func _bone_segments_local() -> Array:
+	var segments: Array = []
 	for i in range(_skeleton.get_bone_count()):
 		var parent_index := _skeleton.get_bone_parent(i)
 		if parent_index == -1:
@@ -424,8 +461,58 @@ func _update_rig_overlay() -> void:
 		if parent_origin.is_zero_approx() and child_origin.is_zero_approx():
 			parent_origin = _skeleton.get_bone_global_rest(parent_index).origin
 			child_origin = _skeleton.get_bone_global_rest(i).origin
-		var parent_world: Vector3 = _skeleton.global_transform * parent_origin
-		var child_world: Vector3 = _skeleton.global_transform * child_origin
-		_overlay_mesh.surface_add_vertex(_rig_overlay_root.to_local(parent_world))
-		_overlay_mesh.surface_add_vertex(_rig_overlay_root.to_local(child_world))
+		var head: Vector3 = _rig_overlay_root.to_local(_skeleton.global_transform * parent_origin)
+		var tail: Vector3 = _rig_overlay_root.to_local(_skeleton.global_transform * child_origin)
+		segments.append([head, tail])
+	return segments
+
+func _draw_line_bones(segments: Array) -> void:
+	_overlay_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	for seg in segments:
+		_overlay_mesh.surface_add_vertex(seg[0])
+		_overlay_mesh.surface_add_vertex(seg[1])
 	_overlay_mesh.surface_end()
+
+# Draws each bone as Blender's octahedral shape: a double pyramid with a square
+# "shoulder" ring near the head, tapering to points at head and tail.
+func _draw_octahedral_bones(segments: Array) -> void:
+	_overlay_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	for seg in segments:
+		var head: Vector3 = seg[0]
+		var tail: Vector3 = seg[1]
+		var axis := tail - head
+		var length := axis.length()
+		if length < 0.0001:
+			continue
+		var dir := axis / length
+		# Build a basis perpendicular to the bone for the square shoulder ring.
+		var up := Vector3.UP if absf(dir.dot(Vector3.UP)) < 0.95 else Vector3.RIGHT
+		var side := dir.cross(up).normalized()
+		var other := dir.cross(side).normalized()
+		var radius := length * 0.1
+		var ring_center := head + dir * radius
+		# Four shoulder vertices around the ring.
+		var r0 := ring_center + side * radius
+		var r1 := ring_center + other * radius
+		var r2 := ring_center - side * radius
+		var r3 := ring_center - other * radius
+		# Top pyramid (head -> ring) and bottom pyramid (ring -> tail).
+		_octa_tri(head, r0, r1)
+		_octa_tri(head, r1, r2)
+		_octa_tri(head, r2, r3)
+		_octa_tri(head, r3, r0)
+		_octa_tri(tail, r1, r0)
+		_octa_tri(tail, r2, r1)
+		_octa_tri(tail, r3, r2)
+		_octa_tri(tail, r0, r3)
+	_overlay_mesh.surface_end()
+
+func _octa_tri(a: Vector3, b: Vector3, c: Vector3) -> void:
+	# Emit a flat-shaded triangle (normal from its own winding) so facets read 3D.
+	var n := (b - a).cross(c - a).normalized()
+	_overlay_mesh.surface_set_normal(n)
+	_overlay_mesh.surface_add_vertex(a)
+	_overlay_mesh.surface_set_normal(n)
+	_overlay_mesh.surface_add_vertex(b)
+	_overlay_mesh.surface_set_normal(n)
+	_overlay_mesh.surface_add_vertex(c)

@@ -112,6 +112,17 @@ layout_mode = 2
 text = "Realtime preview"
 horizontal_alignment = 1
 
+[node name="PreviewToolbar" type="HBoxContainer" parent="WorkspaceSplit/PreviewPanel/RightStack"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="BoneStyleLabel" type="Label" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
+layout_mode = 2
+text = "Bone style:"
+
+[node name="BoneStyleOption" type="OptionButton" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
+layout_mode = 2
+
 [node name="PreviewViewportContainer" type="SubViewportContainer" parent="WorkspaceSplit/PreviewPanel/RightStack"]
 custom_minimum_size = Vector2(720, 640)
 layout_mode = 2

@@ -46,6 +46,7 @@ func run() -> void:
 	test_auto_fitter_keeps_tpose_arms_horizontal()
 	test_analyzer_accepts_z_up_model_as_auto_fit_candidate()
 	test_auto_rig_lab_scene_has_split_rig_and_preview_workspace()
+	test_bone_style_switch_changes_overlay()
 
 # Rigged-skeleton model used for the detection tests. CesiumMan is a small
 # in-repo fixture with a real skinned skeleton, so this test is self-contained.
@@ -350,4 +351,27 @@ func test_auto_rig_lab_scene_has_split_rig_and_preview_workspace() -> void:
 	TestAssert.truthy(root.find_child("FingerCurlSlider", true, false) != null, "finger fine-tune slider exists")
 	TestAssert.truthy(root.find_child("RigQualityLabel", true, false) != null, "rig quality label exists")
 	TestAssert.truthy(root.find_child("RigOverlayRoot", true, false) != null, "skeleton overlay root exists")
+	TestAssert.truthy(root.find_child("BoneStyleOption", true, false) != null, "bone style dropdown exists")
 	root.free()
+
+# The bone overlay must switch between Lines and the Blender-style octahedral
+# (grey cone) display without error, and actually rebuild the overlay geometry.
+func test_bone_style_switch_changes_overlay() -> void:
+	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")
+	var lab = scene.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.root.add_child(lab)
+	lab.find_child("ModelPathEdit", true, false).text = "res://assets/models/external_test/noskel/noskel_tall_tpose.glb"
+	lab._load_model_from_ui()
+	var overlay: MeshInstance3D = lab._overlay_mesh_instance
+	TestAssert.truthy(overlay != null, "overlay mesh instance exists")
+
+	lab._on_bone_style_selected(lab.BoneStyle.LINES)
+	TestAssert.truthy(overlay.mesh.get_surface_count() > 0, "lines style produces geometry")
+	TestAssert.truthy(overlay.mesh.surface_get_primitive_type(0) == Mesh.PRIMITIVE_LINES, "lines style draws line primitives")
+
+	lab._on_bone_style_selected(lab.BoneStyle.OCTAHEDRAL)
+	TestAssert.truthy(overlay.mesh.get_surface_count() > 0, "octahedral style produces geometry")
+	TestAssert.equal(overlay.mesh.surface_get_primitive_type(0), Mesh.PRIMITIVE_TRIANGLES, "octahedral style draws triangles")
+	TestAssert.truthy(overlay.material_override == lab._octa_material, "octahedral material applied")
+	lab.free()
