@@ -429,7 +429,13 @@ func _setup_overlay() -> void:
 	_octa_material.albedo_color = Color(0.62, 0.62, 0.64)
 	_octa_material.cull_mode = BaseMaterial3D.CULL_BACK
 	_octa_material.no_depth_test = true
-	_octa_material.roughness = 0.7
+	_octa_material.roughness = 1.0
+	# Emission lifts the unlit/back-facing facets toward an even mid-grey so the
+	# bones read like Blender's display instead of going near-black at glancing
+	# angles. A little real shading remains so adjacent facets stay distinct.
+	_octa_material.emission_enabled = true
+	_octa_material.emission = Color(0.5, 0.5, 0.52)
+	_octa_material.emission_energy_multiplier = 0.55
 	_overlay_mesh_instance.material_override = _line_material
 	_rig_overlay_root.add_child(_overlay_mesh_instance)
 
