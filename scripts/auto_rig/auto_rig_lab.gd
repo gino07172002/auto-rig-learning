@@ -33,6 +33,10 @@ const ToonHumanoidFitter = preload("res://scripts/auto_rig/toon_humanoid_fitter.
 enum BoneStyle { LINES, OCTAHEDRAL }
 var _bone_style: int = BoneStyle.LINES
 
+# Static test poses. IDLE = the procedural walk/finger preview (default).
+enum PoseMode { IDLE, TPOSE, APOSE, WAVE, CROUCH }
+var _pose_mode: int = PoseMode.IDLE
+
 var _analyzer := AutoRigAnalyzer.new()
 var _fitter := ToonHumanoidFitter.new()
 var _loaded_scene: Node3D
@@ -100,6 +104,11 @@ func _ready() -> void:
 			s.value_changed.connect(func(_v): _on_proportion_changed())
 	if _show_names_check != null:
 		_show_names_check.toggled.connect(_on_show_names_toggled)
+	_connect_pose_button("PoseIdle", PoseMode.IDLE)
+	_connect_pose_button("PoseTPose", PoseMode.TPOSE)
+	_connect_pose_button("PoseAPose", PoseMode.APOSE)
+	_connect_pose_button("PoseWave", PoseMode.WAVE)
+	_connect_pose_button("PoseCrouch", PoseMode.CROUCH)
 	# Drag/zoom the preview: route the container's mouse events to the orbit cam.
 	if _preview_container != null:
 		_preview_container.gui_input.connect(_on_preview_gui_input)
@@ -351,6 +360,7 @@ func _clear_model() -> void:
 	_overlay_mesh.clear_surfaces()
 	_highlight_mesh.clear_surfaces()
 	_set_selected_bone(-1)
+	_pose_mode = PoseMode.IDLE
 
 func _clear_bone_labels() -> void:
 	for label in _bone_labels:
@@ -505,14 +515,17 @@ func _pose_preview(_delta: float) -> void:
 			bone_index,
 			Quaternion(Vector3.RIGHT, curl) * Quaternion(Vector3.FORWARD, twist)
 		)
-	_swing_named_bone("DEF-upper_arm.L", walk * 0.35)
-	_swing_named_bone("DEF-upper_arm.R", -walk * 0.35)
-	_swing_named_bone("DEF-thigh.L", -walk * 0.25)
-	_swing_named_bone("DEF-thigh.R", walk * 0.25)
-	_swing_named_bone("Toon_UpperArm.L", walk * 0.35)
-	_swing_named_bone("Toon_UpperArm.R", -walk * 0.35)
-	_swing_named_bone("Toon_UpperLeg.L", -walk * 0.25)
-	_swing_named_bone("Toon_UpperLeg.R", walk * 0.25)
+	if _pose_mode == PoseMode.IDLE:
+		_swing_named_bone("DEF-upper_arm.L", walk * 0.35)
+		_swing_named_bone("DEF-upper_arm.R", -walk * 0.35)
+		_swing_named_bone("DEF-thigh.L", -walk * 0.25)
+		_swing_named_bone("DEF-thigh.R", walk * 0.25)
+		_swing_named_bone("Toon_UpperArm.L", walk * 0.35)
+		_swing_named_bone("Toon_UpperArm.R", -walk * 0.35)
+		_swing_named_bone("Toon_UpperLeg.L", -walk * 0.25)
+		_swing_named_bone("Toon_UpperLeg.R", walk * 0.25)
+	else:
+		_apply_test_pose(_pose_mode)
 	_update_rig_overlay()
 
 func _swing_named_bone(bone_name: String, angle: float) -> void:
@@ -523,6 +536,54 @@ func _swing_named_bone(bone_name: String, angle: float) -> void:
 		return
 	# Offset on top of rest; neutral pose is identity (set above this frame).
 	_skeleton.set_bone_pose_rotation(idx, Quaternion(Vector3.RIGHT, angle))
+
+# Rotates a named bone about an arbitrary local axis (offset on top of rest).
+func _pose_bone(bone_name: String, axis: Vector3, degrees: float) -> void:
+	if _skeleton == null:
+		return
+	var idx: int = _skeleton.find_bone(bone_name)
+	if idx == -1:
+		return
+	_skeleton.set_bone_pose_rotation(idx, Quaternion(axis.normalized(), deg_to_rad(degrees)))
+
+# Tries each preset's bone name across the supported naming schemes so poses work
+# on both Toon and Blender generated rigs.
+func _pose_limb(keys: Array, axis: Vector3, degrees: float) -> void:
+	for k in keys:
+		if _skeleton.find_bone(k) != -1:
+			_pose_bone(k, axis, degrees)
+			return
+
+func _connect_pose_button(node_name: String, mode: int) -> void:
+	var btn: Button = find_child(node_name, true, false)
+	if btn != null:
+		btn.pressed.connect(func(): _set_pose_mode(mode))
+
+func _set_pose_mode(mode: int) -> void:
+	_pose_mode = mode
+	_pose_preview(0.0)
+
+# Applies a static demo pose by rotating upper-arm / forearm / thigh / shin
+# bones. Bone names cover the Toon and Blender presets used by the generated rig.
+func _apply_test_pose(mode: int) -> void:
+	match mode:
+		PoseMode.TPOSE:
+			# Arms straight out: undo any rest droop by rotating to horizontal.
+			_pose_limb(["Toon_UpperArm.L", "upper_arm.L"], Vector3.FORWARD, -90.0)
+			_pose_limb(["Toon_UpperArm.R", "upper_arm.R"], Vector3.FORWARD, 90.0)
+		PoseMode.APOSE:
+			_pose_limb(["Toon_UpperArm.L", "upper_arm.L"], Vector3.FORWARD, -45.0)
+			_pose_limb(["Toon_UpperArm.R", "upper_arm.R"], Vector3.FORWARD, 45.0)
+		PoseMode.WAVE:
+			# Right arm up + bent forearm (a friendly wave).
+			_pose_limb(["Toon_UpperArm.R", "upper_arm.R"], Vector3.FORWARD, 150.0)
+			_pose_limb(["Toon_LowerArm.R", "forearm.R"], Vector3.RIGHT, -40.0)
+		PoseMode.CROUCH:
+			# Bend hips down and knees, like a crouch.
+			_pose_limb(["Toon_UpperLeg.L", "thigh.L"], Vector3.RIGHT, 55.0)
+			_pose_limb(["Toon_UpperLeg.R", "thigh.R"], Vector3.RIGHT, 55.0)
+			_pose_limb(["Toon_LowerLeg.L", "shin.L"], Vector3.RIGHT, -90.0)
+			_pose_limb(["Toon_LowerLeg.R", "shin.R"], Vector3.RIGHT, -90.0)
 
 func _setup_overlay() -> void:
 	_overlay_mesh_instance = MeshInstance3D.new()

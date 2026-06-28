@@ -52,6 +52,7 @@ func run() -> void:
 	test_fitter_proportion_scales_affect_rig()
 	test_bone_name_labels_toggle()
 	test_bone_selection_updates_info_and_highlight()
+	test_test_pose_presets_change_pose()
 
 # Rigged-skeleton model used for the detection tests. CesiumMan is a small
 # in-repo fixture with a real skinned skeleton, so this test is self-contained.
@@ -428,6 +429,34 @@ func test_bone_selection_updates_info_and_highlight() -> void:
 	TestAssert.equal(lab._selected_bone, -1, "selection cleared on reload")
 	lab.free()
 
+# Test-pose buttons must put bones into a non-rest pose, and Idle/Walk returns
+# control to the procedural preview.
+func test_test_pose_presets_change_pose() -> void:
+	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")
+	var lab = scene.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.root.add_child(lab)
+	lab.find_child("ModelPathEdit", true, false).text = "res://assets/models/external_test/noskel/noskel_tall_tpose.glb"
+	lab._load_model_from_ui()
+	var skel: Skeleton3D = lab._skeleton
+	var arm := skel.find_bone("Toon_UpperArm.R")
+	TestAssert.truthy(arm != -1, "arm bone exists")
+
+	# T-Pose rotates the upper arm; its pose rotation should differ from identity.
+	lab._set_pose_mode(lab.PoseMode.TPOSE)
+	var tpose_rot: Quaternion = skel.get_bone_pose_rotation(arm)
+	TestAssert.truthy(tpose_rot.angle_to(Quaternion.IDENTITY) > 0.1, "T-pose rotates the upper arm")
+
+	# Crouch should bend the shin.
+	var shin := skel.find_bone("Toon_LowerLeg.L")
+	lab._set_pose_mode(lab.PoseMode.CROUCH)
+	TestAssert.truthy(skel.get_bone_pose_rotation(shin).angle_to(Quaternion.IDENTITY) > 0.1, "crouch bends the shin")
+
+	# Back to Idle/Walk: pose mode resets to procedural preview.
+	lab._set_pose_mode(lab.PoseMode.IDLE)
+	TestAssert.equal(lab._pose_mode, lab.PoseMode.IDLE, "idle restores procedural preview")
+	lab.free()
+
 func test_auto_rig_lab_scene_has_split_rig_and_preview_workspace() -> void:
 	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")
 	TestAssert.truthy(scene != null, "auto rig lab scene exists")
@@ -477,12 +506,16 @@ func test_bone_style_switch_changes_overlay() -> void:
 	var overlay: MeshInstance3D = lab._overlay_mesh_instance
 	TestAssert.truthy(overlay != null, "overlay mesh instance exists")
 
+	# Octahedral draws solid bone cones (many triangle verts) vs lines (2 verts/
+	# bone), so the octahedral surface has far more vertices and a grey material.
 	lab._on_bone_style_selected(lab.BoneStyle.LINES)
 	TestAssert.truthy(overlay.mesh.get_surface_count() > 0, "lines style produces geometry")
-	TestAssert.truthy(overlay.mesh.surface_get_primitive_type(0) == Mesh.PRIMITIVE_LINES, "lines style draws line primitives")
+	var line_verts: int = (overlay.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+	TestAssert.truthy(overlay.material_override == lab._line_material, "lines material applied")
 
 	lab._on_bone_style_selected(lab.BoneStyle.OCTAHEDRAL)
 	TestAssert.truthy(overlay.mesh.get_surface_count() > 0, "octahedral style produces geometry")
-	TestAssert.equal(overlay.mesh.surface_get_primitive_type(0), Mesh.PRIMITIVE_TRIANGLES, "octahedral style draws triangles")
+	var octa_verts: int = (overlay.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+	TestAssert.truthy(octa_verts > line_verts * 4, "octahedral has many more verts than lines (solid cones)")
 	TestAssert.truthy(overlay.material_override == lab._octa_material, "octahedral material applied")
 	lab.free()
