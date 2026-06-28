@@ -175,6 +175,12 @@ layout_mode = 2
 layout_mode = 2
 text = "Bone names"
 
+[node name="SelectedBoneLabel" type="Label" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Selected: (click a bone)"
+horizontal_alignment = 2
+
 [node name="PreviewViewportContainer" type="SubViewportContainer" parent="WorkspaceSplit/PreviewPanel/RightStack"]
 custom_minimum_size = Vector2(720, 640)
 layout_mode = 2

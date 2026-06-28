@@ -51,6 +51,7 @@ func run() -> void:
 	test_fitter_blender_naming_preset()
 	test_fitter_proportion_scales_affect_rig()
 	test_bone_name_labels_toggle()
+	test_bone_selection_updates_info_and_highlight()
 
 # Rigged-skeleton model used for the detection tests. CesiumMan is a small
 # in-repo fixture with a real skinned skeleton, so this test is self-contained.
@@ -402,6 +403,29 @@ func test_bone_name_labels_toggle() -> void:
 
 	lab._on_show_names_toggled(false)
 	TestAssert.equal(lab._bone_labels.size(), 0, "labels removed when hidden")
+	lab.free()
+
+# Selecting a bone updates the info label and draws a highlight; clearing the
+# model deselects.
+func test_bone_selection_updates_info_and_highlight() -> void:
+	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")
+	var lab = scene.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.root.add_child(lab)
+	lab.find_child("ModelPathEdit", true, false).text = "res://assets/models/external_test/noskel/noskel_tall_tpose.glb"
+	lab._load_model_from_ui()
+	var hand: int = lab._skeleton.find_bone("Toon_Hand.L")
+	TestAssert.truthy(hand > 0, "has a non-root bone to select")
+
+	lab._set_selected_bone(hand)
+	TestAssert.equal(lab._selected_bone, hand, "selection stored")
+	TestAssert.truthy(lab._selected_bone_label.text.contains("Toon_Hand.L"), "info label names the bone")
+	lab._update_rig_overlay()
+	TestAssert.truthy(lab._highlight_mesh.get_surface_count() > 0, "highlight geometry drawn for selection")
+
+	# Reloading clears the selection.
+	lab._load_model_from_ui()
+	TestAssert.equal(lab._selected_bone, -1, "selection cleared on reload")
 	lab.free()
 
 func test_auto_rig_lab_scene_has_split_rig_and_preview_workspace() -> void:

@@ -27,6 +27,7 @@ const ToonHumanoidFitter = preload("res://scripts/auto_rig/toon_humanoid_fitter.
 @onready var _bone_style_option: OptionButton = find_child("BoneStyleOption", true, false)
 @onready var _naming_option: OptionButton = find_child("NamingOption", true, false)
 @onready var _show_names_check: CheckBox = find_child("ShowNamesCheck", true, false)
+@onready var _selected_bone_label: Label = find_child("SelectedBoneLabel", true, false)
 
 # Bone overlay display styles, selectable in the preview toolbar.
 enum BoneStyle { LINES, OCTAHEDRAL }
@@ -43,6 +44,13 @@ var _line_material: StandardMaterial3D
 var _octa_material: StandardMaterial3D
 var _bone_labels: Array[Label3D] = []
 var _show_bone_names: bool = false
+var _selected_bone: int = -1
+var _highlight_material: StandardMaterial3D
+var _highlight_mesh := ImmediateMesh.new()
+var _highlight_instance: MeshInstance3D
+# Tracks where a left-press started so we can tell a click (select) from a drag.
+var _left_press_pos := Vector2.ZERO
+var _left_moved := false
 var _phase := 0.0
 var _finger_bones: Array[int] = []
 # When the imported model ships its own AnimationPlayer (e.g. a Blender-authored
@@ -179,6 +187,12 @@ func _on_preview_gui_input(event: InputEvent) -> void:
 		match mb.button_index:
 			MOUSE_BUTTON_LEFT:
 				_orbit_dragging = mb.pressed
+				if mb.pressed:
+					_left_press_pos = mb.position
+					_left_moved = false
+				elif not _left_moved:
+					# Released without dragging => treat as a click to select a bone.
+					_select_bone_at(mb.position)
 			MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE:
 				_panning = mb.pressed
 			MOUSE_BUTTON_WHEEL_UP:
@@ -190,6 +204,8 @@ func _on_preview_gui_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
 		if _orbit_dragging:
+			if mm.position.distance_to(_left_press_pos) > 4.0:
+				_left_moved = true
 			_orbit_yaw -= mm.relative.x * 0.01
 			_orbit_pitch = clampf(_orbit_pitch + mm.relative.y * 0.01, -ORBIT_PITCH_LIMIT, ORBIT_PITCH_LIMIT)
 			_apply_orbit_camera()
@@ -333,6 +349,8 @@ func _clear_model() -> void:
 	_builtin_animation = ""
 	_finger_bones.clear()
 	_overlay_mesh.clear_surfaces()
+	_highlight_mesh.clear_surfaces()
+	_set_selected_bone(-1)
 
 func _clear_bone_labels() -> void:
 	for label in _bone_labels:
@@ -534,6 +552,55 @@ func _setup_overlay() -> void:
 	_overlay_mesh_instance.material_override = _line_material
 	_rig_overlay_root.add_child(_overlay_mesh_instance)
 
+	# Separate overlay for the selected-bone highlight (bright, drawn on top).
+	_highlight_instance = MeshInstance3D.new()
+	_highlight_instance.name = "SelectedBoneHighlight"
+	_highlight_instance.mesh = _highlight_mesh
+	_highlight_material = StandardMaterial3D.new()
+	_highlight_material.albedo_color = Color(1.0, 0.55, 0.05)
+	_highlight_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_highlight_material.no_depth_test = true
+	_highlight_instance.material_override = _highlight_material
+	_rig_overlay_root.add_child(_highlight_instance)
+
+# Picks the bone whose joint projects nearest to the clicked screen point and
+# selects it (highlight + info). Click position is in the container's space.
+func _select_bone_at(container_pos: Vector2) -> void:
+	if _skeleton == null or _camera == null or _preview_container == null:
+		return
+	# Map container-local position to the SubViewport's pixel space.
+	var cont_size := _preview_container.size
+	var vp_size := Vector2(_viewport.size)
+	if cont_size.x <= 0.0 or cont_size.y <= 0.0:
+		return
+	var vp_pos := Vector2(container_pos.x / cont_size.x * vp_size.x, container_pos.y / cont_size.y * vp_size.y)
+
+	var best := -1
+	var best_dist := 24.0  # max pick radius in viewport pixels
+	for i in range(_skeleton.get_bone_count()):
+		var world: Vector3 = _skeleton.global_transform * _skeleton.get_bone_global_pose(i).origin
+		if _camera.is_position_behind(world):
+			continue
+		var screen: Vector2 = _camera.unproject_position(world)
+		var d := screen.distance_to(vp_pos)
+		if d < best_dist:
+			best_dist = d
+			best = i
+	if best != -1:
+		_set_selected_bone(best)
+
+func _set_selected_bone(index: int) -> void:
+	_selected_bone = index
+	if _selected_bone_label == null:
+		return
+	if index == -1:
+		_selected_bone_label.text = "Selected: (click a bone)"
+		return
+	var name := _skeleton.get_bone_name(index)
+	var parent_idx := _skeleton.get_bone_parent(index)
+	var parent_name := _skeleton.get_bone_name(parent_idx) if parent_idx != -1 else "(root)"
+	_selected_bone_label.text = "Selected: %s  |  parent: %s  |  #%d" % [name, parent_name, index]
+
 # Switching naming only matters for generated (auto-fit) rigs; re-run the load so
 # the skeleton is rebuilt with the chosen preset's bone names.
 func _on_naming_selected(index: int) -> void:
@@ -572,6 +639,28 @@ func _update_rig_overlay() -> void:
 		_draw_line_bones(segments)
 	if _show_bone_names:
 		_update_bone_label_positions()
+	_update_selection_highlight()
+
+# Draws the selected bone's segment as a thick bright marker over the rig.
+func _update_selection_highlight() -> void:
+	_highlight_mesh.clear_surfaces()
+	if _selected_bone <= 0 or _skeleton == null or _selected_bone >= _skeleton.get_bone_count():
+		return
+	var parent_idx := _skeleton.get_bone_parent(_selected_bone)
+	if parent_idx == -1:
+		return
+	var head: Vector3 = _rig_overlay_root.to_local(_skeleton.global_transform * _skeleton.get_bone_global_pose(parent_idx).origin)
+	var tail: Vector3 = _rig_overlay_root.to_local(_skeleton.global_transform * _skeleton.get_bone_global_pose(_selected_bone).origin)
+	# A small box around the joint + a line along the bone, so it pops out.
+	_highlight_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	var r := head.distance_to(tail) * 0.12 + 0.02
+	for corner in [Vector3(r,r,r), Vector3(-r,r,r), Vector3(-r,-r,r), Vector3(r,-r,r), Vector3(r,r,r)]:
+		_highlight_mesh.surface_add_vertex(tail + corner)
+	_highlight_mesh.surface_end()
+	_highlight_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	_highlight_mesh.surface_add_vertex(head)
+	_highlight_mesh.surface_add_vertex(tail)
+	_highlight_mesh.surface_end()
 
 # Collects each bone as a [head, tail] pair in _rig_overlay_root local space.
 func _bone_segments_local() -> Array:
