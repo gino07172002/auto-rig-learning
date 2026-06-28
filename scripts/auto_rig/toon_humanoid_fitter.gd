@@ -44,6 +44,12 @@ var last_fit_info: Dictionary = {}
 # Naming preset used by the next fit_skeleton() call.
 var naming: int = Naming.TOON
 
+# Manual proportion multipliers applied on top of the auto-measured fit, so the
+# user can fine-tune limb sizing. 1.0 = pure auto-fit.
+var shoulder_scale: float = 1.0
+var arm_scale: float = 1.0
+var leg_scale: float = 1.0
+
 # Resolves a logical body-bone key to the current preset's bone name.
 func _bone_name(key: String) -> String:
 	return _BODY_NAMES[naming].get(key, key)
@@ -160,7 +166,8 @@ func _build_joint_points(bounds: AABB, mesh_entries: Array) -> Dictionary:
 	var shoulder_span: float = _measure_half_width(mesh_entries, shoulder_y, height * 0.06, center)
 	var hip_span: float = _measure_half_width(mesh_entries, hip_y, height * 0.05, center)
 
-	var shoulder_width: float = max(shoulder_span * 0.55, height * 0.06)
+	# Auto-measured proportions, then scaled by the manual multipliers.
+	var shoulder_width: float = max(shoulder_span * 0.55, height * 0.06) * shoulder_scale
 	var hip_width: float = max(hip_span * 0.45, height * 0.045)
 	var foot_z: float = bounds.size.z * 0.10
 
@@ -171,6 +178,9 @@ func _build_joint_points(bounds: AABB, mesh_entries: Array) -> Dictionary:
 	var shoulder_r := Vector3(center.x + shoulder_width, shoulder_y, center.z)
 	var hand_l := _measure_hand_tip(mesh_entries, center, shoulder_width, shoulder_l, false, height)
 	var hand_r := _measure_hand_tip(mesh_entries, center, shoulder_width, shoulder_r, true, height)
+	# arm_scale lengthens/shortens the arm by scaling the shoulder->hand vector.
+	hand_l = shoulder_l + (hand_l - shoulder_l) * arm_scale
+	hand_r = shoulder_r + (hand_r - shoulder_r) * arm_scale
 
 	# Distribute upper-arm / lower-arm joints along the shoulder->hand line so the
 	# bones follow the limb's true direction whatever the pose.
@@ -178,6 +188,12 @@ func _build_joint_points(bounds: AABB, mesh_entries: Array) -> Dictionary:
 	var lower_l := shoulder_l.lerp(hand_l, 0.67)
 	var upper_r := shoulder_r.lerp(hand_r, 0.34)
 	var lower_r := shoulder_r.lerp(hand_r, 0.67)
+
+	# leg_scale scales leg-joint heights relative to the hip (lower = longer legs).
+	var hip_h: float = y0 + height * 0.52
+	var knee_h: float = hip_h + (y0 + height * 0.25 - hip_h) * leg_scale
+	var foot_h: float = hip_h + (y0 + height * 0.04 - hip_h) * leg_scale
+	var upper_leg_h: float = hip_h + (y0 + height * 0.47 - hip_h) * leg_scale
 
 	# Keyed by LOGICAL bone key; names are resolved per preset when bones are added.
 	return {
@@ -194,12 +210,12 @@ func _build_joint_points(bounds: AABB, mesh_entries: Array) -> Dictionary:
 		"upper_arm.R": upper_r,
 		"lower_arm.R": lower_r,
 		"hand.R": hand_r,
-		"upper_leg.L": Vector3(center.x - hip_width, y0 + height * 0.47, center.z),
-		"lower_leg.L": Vector3(center.x - hip_width, y0 + height * 0.25, center.z),
-		"foot.L": Vector3(center.x - hip_width, y0 + height * 0.04, center.z + foot_z),
-		"upper_leg.R": Vector3(center.x + hip_width, y0 + height * 0.47, center.z),
-		"lower_leg.R": Vector3(center.x + hip_width, y0 + height * 0.25, center.z),
-		"foot.R": Vector3(center.x + hip_width, y0 + height * 0.04, center.z + foot_z),
+		"upper_leg.L": Vector3(center.x - hip_width, upper_leg_h, center.z),
+		"lower_leg.L": Vector3(center.x - hip_width, knee_h, center.z),
+		"foot.L": Vector3(center.x - hip_width, foot_h, center.z + foot_z),
+		"upper_leg.R": Vector3(center.x + hip_width, upper_leg_h, center.z),
+		"lower_leg.R": Vector3(center.x + hip_width, knee_h, center.z),
+		"foot.R": Vector3(center.x + hip_width, foot_h, center.z + foot_z),
 	}
 
 # Finds the hand tip for one side by looking at vertices that lie beyond the

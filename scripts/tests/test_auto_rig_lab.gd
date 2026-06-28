@@ -49,6 +49,7 @@ func run() -> void:
 	test_bone_style_switch_changes_overlay()
 	test_export_button_writes_rigged_glb()
 	test_fitter_blender_naming_preset()
+	test_fitter_proportion_scales_affect_rig()
 
 # Rigged-skeleton model used for the detection tests. CesiumMan is a small
 # in-repo fixture with a real skinned skeleton, so this test is self-contained.
@@ -359,6 +360,29 @@ func test_fitter_blender_naming_preset() -> void:
 	TestAssert.truthy(skeleton.find_bone("f_index.03.R") != -1, "blender finger f_index.03.R exists")
 	TestAssert.truthy(skeleton.find_bone("Toon_Hand.L") == -1, "no Toon names under blender preset")
 	root.free()
+
+# Manual proportion multipliers must measurably change joint placement: a wider
+# shoulder scale pushes the shoulder bone further out; a larger leg scale lowers
+# the foot.
+func test_fitter_proportion_scales_affect_rig() -> void:
+	var base = load("res://scripts/auto_rig/toon_humanoid_fitter.gd").new()
+	var root_a: Node3D = _load_unrigged(base)
+	var skel_a: Skeleton3D = base.fit_skeleton(root_a)
+	var base_shoulder_x: float = absf(skel_a.get_bone_global_rest(skel_a.find_bone("Toon_Shoulder.L")).origin.x)
+	var base_foot_y: float = skel_a.get_bone_global_rest(skel_a.find_bone("Toon_Foot.L")).origin.y
+	root_a.free()
+
+	var wide = load("res://scripts/auto_rig/toon_humanoid_fitter.gd").new()
+	wide.shoulder_scale = 1.6
+	wide.leg_scale = 1.4
+	var root_b: Node3D = _load_unrigged(wide)
+	var skel_b: Skeleton3D = wide.fit_skeleton(root_b)
+	var wide_shoulder_x: float = absf(skel_b.get_bone_global_rest(skel_b.find_bone("Toon_Shoulder.L")).origin.x)
+	var wide_foot_y: float = skel_b.get_bone_global_rest(skel_b.find_bone("Toon_Foot.L")).origin.y
+	root_b.free()
+
+	TestAssert.truthy(wide_shoulder_x > base_shoulder_x + 0.01, "shoulder scale widens the shoulders")
+	TestAssert.truthy(wide_foot_y < base_foot_y - 0.01, "leg scale lowers the foot")
 
 func test_auto_rig_lab_scene_has_split_rig_and_preview_workspace() -> void:
 	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")

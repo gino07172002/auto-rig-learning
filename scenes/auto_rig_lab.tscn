@@ -96,6 +96,39 @@ layout_mode = 2
 text = "Rig score: -"
 autowrap_mode = 3
 
+[node name="ShoulderScaleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+layout_mode = 2
+text = "Shoulder width (auto-fit x)"
+
+[node name="ShoulderScaleSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+layout_mode = 2
+min_value = 0.5
+max_value = 1.8
+step = 0.01
+value = 1.0
+
+[node name="ArmScaleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+layout_mode = 2
+text = "Arm length (auto-fit x)"
+
+[node name="ArmScaleSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+layout_mode = 2
+min_value = 0.5
+max_value = 1.8
+step = 0.01
+value = 1.0
+
+[node name="LegScaleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+layout_mode = 2
+text = "Leg length (auto-fit x)"
+
+[node name="LegScaleSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+layout_mode = 2
+min_value = 0.5
+max_value = 1.8
+step = 0.01
+value = 1.0
+
 [node name="FineTuneLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
 layout_mode = 2
 text = "Finger curl"

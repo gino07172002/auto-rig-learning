@@ -13,6 +13,9 @@ const ToonHumanoidFitter = preload("res://scripts/auto_rig/toon_humanoid_fitter.
 @onready var _bone_summary: Label = find_child("BoneSummaryLabel", true, false)
 @onready var _finger_summary: Label = find_child("FingerSummaryLabel", true, false)
 @onready var _quality_label: Label = find_child("RigQualityLabel", true, false)
+@onready var _shoulder_scale_slider: HSlider = find_child("ShoulderScaleSlider", true, false)
+@onready var _arm_scale_slider: HSlider = find_child("ArmScaleSlider", true, false)
+@onready var _leg_scale_slider: HSlider = find_child("LegScaleSlider", true, false)
 @onready var _finger_slider: HSlider = find_child("FingerCurlSlider", true, false)
 @onready var _pose_slider: HSlider = find_child("PoseIntensitySlider", true, false)
 @onready var _viewport: SubViewport = find_child("PreviewViewport", true, false)
@@ -81,6 +84,9 @@ func _ready() -> void:
 		_naming_option.selected = _fitter.naming
 		# Re-fit the current model so the new naming takes effect immediately.
 		_naming_option.item_selected.connect(_on_naming_selected)
+	for s in [_shoulder_scale_slider, _arm_scale_slider, _leg_scale_slider]:
+		if s != null:
+			s.value_changed.connect(func(_v): _on_proportion_changed())
 	# Drag/zoom the preview: route the container's mouse events to the orbit cam.
 	if _preview_container != null:
 		_preview_container.gui_input.connect(_on_preview_gui_input)
@@ -254,6 +260,7 @@ func _load_model_from_ui() -> void:
 	_model_root.add_child(_loaded_scene)
 	_skeleton = _find_largest_skeleton(_loaded_scene)
 	if _skeleton == null and report.get("auto_fit_candidate", false):
+		_apply_proportions_to_fitter()
 		_skeleton = _fitter.fit_skeleton(_loaded_scene)
 		_status.text = "Auto-fit preview skeleton generated from mesh bounds"
 	_fit_loaded_scene()
@@ -487,6 +494,20 @@ func _setup_overlay() -> void:
 # the skeleton is rebuilt with the chosen preset's bone names.
 func _on_naming_selected(index: int) -> void:
 	_fitter.naming = index
+	if _last_report.get("auto_fit_candidate", false):
+		_load_model_from_ui()
+
+# Pushes the proportion sliders into the fitter (no-op if sliders are absent).
+func _apply_proportions_to_fitter() -> void:
+	if _shoulder_scale_slider != null:
+		_fitter.shoulder_scale = float(_shoulder_scale_slider.value)
+	if _arm_scale_slider != null:
+		_fitter.arm_scale = float(_arm_scale_slider.value)
+	if _leg_scale_slider != null:
+		_fitter.leg_scale = float(_leg_scale_slider.value)
+
+# Proportions only affect generated (auto-fit) rigs; re-run the fit to apply.
+func _on_proportion_changed() -> void:
 	if _last_report.get("auto_fit_candidate", false):
 		_load_model_from_ui()
 
