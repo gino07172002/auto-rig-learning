@@ -171,6 +171,10 @@ text = "Bone style:"
 [node name="BoneStyleOption" type="OptionButton" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
 layout_mode = 2
 
+[node name="ShowNamesCheck" type="CheckBox" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
+layout_mode = 2
+text = "Bone names"
+
 [node name="PreviewViewportContainer" type="SubViewportContainer" parent="WorkspaceSplit/PreviewPanel/RightStack"]
 custom_minimum_size = Vector2(720, 640)
 layout_mode = 2

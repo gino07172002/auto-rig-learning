@@ -26,6 +26,7 @@ const ToonHumanoidFitter = preload("res://scripts/auto_rig/toon_humanoid_fitter.
 @onready var _camera: Camera3D = find_child("Camera3D", true, false)
 @onready var _bone_style_option: OptionButton = find_child("BoneStyleOption", true, false)
 @onready var _naming_option: OptionButton = find_child("NamingOption", true, false)
+@onready var _show_names_check: CheckBox = find_child("ShowNamesCheck", true, false)
 
 # Bone overlay display styles, selectable in the preview toolbar.
 enum BoneStyle { LINES, OCTAHEDRAL }
@@ -40,6 +41,8 @@ var _overlay_mesh_instance: MeshInstance3D
 var _overlay_mesh := ImmediateMesh.new()
 var _line_material: StandardMaterial3D
 var _octa_material: StandardMaterial3D
+var _bone_labels: Array[Label3D] = []
+var _show_bone_names: bool = false
 var _phase := 0.0
 var _finger_bones: Array[int] = []
 # When the imported model ships its own AnimationPlayer (e.g. a Blender-authored
@@ -87,6 +90,8 @@ func _ready() -> void:
 	for s in [_shoulder_scale_slider, _arm_scale_slider, _leg_scale_slider]:
 		if s != null:
 			s.value_changed.connect(func(_v): _on_proportion_changed())
+	if _show_names_check != null:
+		_show_names_check.toggled.connect(_on_show_names_toggled)
 	# Drag/zoom the preview: route the container's mouse events to the orbit cam.
 	if _preview_container != null:
 		_preview_container.gui_input.connect(_on_preview_gui_input)
@@ -266,6 +271,7 @@ func _load_model_from_ui() -> void:
 	_fit_loaded_scene()
 	_frame_orbit_on_model()
 	_cache_skeleton()
+	_rebuild_bone_labels()
 	_setup_builtin_animation()
 	if report.get("auto_fit_candidate", false) and _skeleton != null:
 		_bone_summary.text = "Generated preview  |  Bones %d  |  Primary %s" % [
@@ -320,12 +326,50 @@ func _show_report(report: Dictionary) -> void:
 func _clear_model() -> void:
 	for child in _model_root.get_children():
 		child.queue_free()
+	_clear_bone_labels()
 	_loaded_scene = null
 	_skeleton = null
 	_anim_player = null
 	_builtin_animation = ""
 	_finger_bones.clear()
 	_overlay_mesh.clear_surfaces()
+
+func _clear_bone_labels() -> void:
+	for label in _bone_labels:
+		if is_instance_valid(label):
+			label.queue_free()
+	_bone_labels.clear()
+
+func _on_show_names_toggled(pressed: bool) -> void:
+	_show_bone_names = pressed
+	_rebuild_bone_labels()
+
+# Creates one Label3D per bone (parented under the overlay root) when names are
+# shown; frees them otherwise. Positions are refreshed each frame in the overlay.
+func _rebuild_bone_labels() -> void:
+	_clear_bone_labels()
+	if not _show_bone_names or _skeleton == null or _rig_overlay_root == null:
+		return
+	for i in range(_skeleton.get_bone_count()):
+		var label := Label3D.new()
+		label.text = _skeleton.get_bone_name(i)
+		label.font_size = 28
+		label.outline_size = 8
+		label.modulate = Color(1.0, 0.95, 0.4)
+		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		label.no_depth_test = true
+		label.pixel_size = 0.0006
+		_rig_overlay_root.add_child(label)
+		_bone_labels.append(label)
+	_update_bone_label_positions()
+
+func _update_bone_label_positions() -> void:
+	if _skeleton == null:
+		return
+	for i in range(min(_bone_labels.size(), _skeleton.get_bone_count())):
+		var origin: Vector3 = _skeleton.get_bone_global_pose(i).origin
+		var world: Vector3 = _skeleton.global_transform * origin
+		_bone_labels[i].position = _rig_overlay_root.to_local(world)
 
 func _fit_loaded_scene() -> void:
 	if _loaded_scene == null:
@@ -526,6 +570,8 @@ func _update_rig_overlay() -> void:
 		_draw_octahedral_bones(segments)
 	else:
 		_draw_line_bones(segments)
+	if _show_bone_names:
+		_update_bone_label_positions()
 
 # Collects each bone as a [head, tail] pair in _rig_overlay_root local space.
 func _bone_segments_local() -> Array:

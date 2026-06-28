@@ -50,6 +50,7 @@ func run() -> void:
 	test_export_button_writes_rigged_glb()
 	test_fitter_blender_naming_preset()
 	test_fitter_proportion_scales_affect_rig()
+	test_bone_name_labels_toggle()
 
 # Rigged-skeleton model used for the detection tests. CesiumMan is a small
 # in-repo fixture with a real skinned skeleton, so this test is self-contained.
@@ -383,6 +384,25 @@ func test_fitter_proportion_scales_affect_rig() -> void:
 
 	TestAssert.truthy(wide_shoulder_x > base_shoulder_x + 0.01, "shoulder scale widens the shoulders")
 	TestAssert.truthy(wide_foot_y < base_foot_y - 0.01, "leg scale lowers the foot")
+
+# Toggling "Bone names" must create one Label3D per bone (showing its name) and
+# remove them when turned off.
+func test_bone_name_labels_toggle() -> void:
+	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")
+	var lab = scene.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.root.add_child(lab)
+	lab.find_child("ModelPathEdit", true, false).text = "res://assets/models/external_test/noskel/noskel_tall_tpose.glb"
+	lab._load_model_from_ui()
+	var bone_count: int = lab._skeleton.get_bone_count()
+
+	lab._on_show_names_toggled(true)
+	TestAssert.equal(lab._bone_labels.size(), bone_count, "one label per bone when shown")
+	TestAssert.equal(lab._bone_labels[0].text, lab._skeleton.get_bone_name(0), "label shows the bone name")
+
+	lab._on_show_names_toggled(false)
+	TestAssert.equal(lab._bone_labels.size(), 0, "labels removed when hidden")
+	lab.free()
 
 func test_auto_rig_lab_scene_has_split_rig_and_preview_workspace() -> void:
 	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")
