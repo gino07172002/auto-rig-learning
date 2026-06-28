@@ -516,14 +516,12 @@ func _pose_preview(_delta: float) -> void:
 			Quaternion(Vector3.RIGHT, curl) * Quaternion(Vector3.FORWARD, twist)
 		)
 	if _pose_mode == PoseMode.IDLE:
-		_swing_named_bone("DEF-upper_arm.L", walk * 0.35)
-		_swing_named_bone("DEF-upper_arm.R", -walk * 0.35)
-		_swing_named_bone("DEF-thigh.L", -walk * 0.25)
-		_swing_named_bone("DEF-thigh.R", walk * 0.25)
-		_swing_named_bone("Toon_UpperArm.L", walk * 0.35)
-		_swing_named_bone("Toon_UpperArm.R", -walk * 0.35)
-		_swing_named_bone("Toon_UpperLeg.L", -walk * 0.25)
-		_swing_named_bone("Toon_UpperLeg.R", walk * 0.25)
+		# Swing limbs across all supported naming schemes (DEF-* rigify, Toon_*,
+		# Blender upper_arm/thigh) so the idle preview works on any generated rig.
+		_swing_limb(["DEF-upper_arm.L", "Toon_UpperArm.L", "upper_arm.L"], walk * 0.35)
+		_swing_limb(["DEF-upper_arm.R", "Toon_UpperArm.R", "upper_arm.R"], -walk * 0.35)
+		_swing_limb(["DEF-thigh.L", "Toon_UpperLeg.L", "thigh.L"], -walk * 0.25)
+		_swing_limb(["DEF-thigh.R", "Toon_UpperLeg.R", "thigh.R"], walk * 0.25)
 	else:
 		_apply_test_pose(_pose_mode)
 	_update_rig_overlay()
@@ -536,6 +534,13 @@ func _swing_named_bone(bone_name: String, angle: float) -> void:
 		return
 	# Offset on top of rest; neutral pose is identity (set above this frame).
 	_skeleton.set_bone_pose_rotation(idx, Quaternion(Vector3.RIGHT, angle))
+
+# Swings the first bone whose name matches any of `names` (covers naming presets).
+func _swing_limb(names: Array, angle: float) -> void:
+	for n in names:
+		if _skeleton.find_bone(n) != -1:
+			_swing_named_bone(n, angle)
+			return
 
 # Rotates a named bone about an arbitrary local axis (offset on top of rest).
 func _pose_bone(bone_name: String, axis: Vector3, degrees: float) -> void:
@@ -554,6 +559,64 @@ func _pose_limb(keys: Array, axis: Vector3, degrees: float) -> void:
 			_pose_bone(k, axis, degrees)
 			return
 
+# Aims a bone so the segment from it to its first child points along a target
+# WORLD direction, regardless of the bone's rest orientation. This makes poses
+# absolute ("arm horizontal") instead of relative deltas on top of rest.
+func _aim_limb(keys: Array, target_world_dir: Vector3) -> void:
+	for k in keys:
+		var idx: int = _skeleton.find_bone(k)
+		if idx != -1:
+			_aim_bone(idx, target_world_dir)
+			return
+
+func _aim_bone(idx: int, target_world_dir: Vector3) -> void:
+	var child := _first_child_bone(idx)
+	if child == -1:
+		return
+	# Rest direction of the bone->child segment, in skeleton (model) space.
+	var rest_dir: Vector3 = (_skeleton.get_bone_global_rest(child).origin - _skeleton.get_bone_global_rest(idx).origin)
+	if rest_dir.length() < 0.0001:
+		return
+	rest_dir = rest_dir.normalized()
+	var target := target_world_dir.normalized()
+	# Rotation (in model space) that turns the rest direction onto the target.
+	var model_rot := _rotation_between(rest_dir, target)
+	# Convert that model-space rotation into this bone's LOCAL pose rotation:
+	# pose_local = rest_basis^-1 * parent_global^-1 * model_rot * parent_global * rest_basis... but
+	# since rest pose has identity bases here, the bone's rest global basis is its
+	# parent chain's accumulated basis (identity for generated rigs). We express
+	# the aim relative to the parent's global rest basis.
+	var parent := _skeleton.get_bone_parent(idx)
+	var parent_basis := Basis()
+	if parent != -1:
+		parent_basis = _skeleton.get_bone_global_rest(parent).basis
+	var rest_basis: Basis = _skeleton.get_bone_rest(idx).basis
+	# Desired model-space basis for this bone = model_rot applied to its rest global basis.
+	var rest_global_basis: Basis = _skeleton.get_bone_global_rest(idx).basis
+	var desired_global := Basis(model_rot) * rest_global_basis
+	var local_basis := (parent_basis * rest_basis).inverse() * desired_global
+	_skeleton.set_bone_pose_rotation(idx, local_basis.get_rotation_quaternion())
+
+func _first_child_bone(idx: int) -> int:
+	for i in range(_skeleton.get_bone_count()):
+		if _skeleton.get_bone_parent(i) == idx:
+			return i
+	return -1
+
+# Shortest-arc quaternion rotating unit vector `from` onto unit vector `to`.
+func _rotation_between(from: Vector3, to: Vector3) -> Quaternion:
+	var d := from.dot(to)
+	if d > 0.9999:
+		return Quaternion.IDENTITY
+	if d < -0.9999:
+		# 180 deg: pick any perpendicular axis.
+		var axis := from.cross(Vector3.UP)
+		if axis.length() < 0.001:
+			axis = from.cross(Vector3.RIGHT)
+		return Quaternion(axis.normalized(), PI)
+	var axis := from.cross(to).normalized()
+	return Quaternion(axis, acos(clampf(d, -1.0, 1.0)))
+
 func _connect_pose_button(node_name: String, mode: int) -> void:
 	var btn: Button = find_child(node_name, true, false)
 	if btn != null:
@@ -565,25 +628,32 @@ func _set_pose_mode(mode: int) -> void:
 
 # Applies a static demo pose by rotating upper-arm / forearm / thigh / shin
 # bones. Bone names cover the Toon and Blender presets used by the generated rig.
+# Poses use ABSOLUTE world-space aim directions (model space: +X = figure's left
+# side, -X = right side, +Y = up, -Y = down), so the result is the named pose
+# regardless of the bone rest orientation.
 func _apply_test_pose(mode: int) -> void:
+	const L_OUT := Vector3.LEFT      # toward the figure's left hand (+X)
+	const R_OUT := Vector3.RIGHT     # toward the figure's right hand (-X)
+	var down := Vector3.DOWN
 	match mode:
 		PoseMode.TPOSE:
-			# Arms straight out: undo any rest droop by rotating to horizontal.
-			_pose_limb(["Toon_UpperArm.L", "upper_arm.L"], Vector3.FORWARD, -90.0)
-			_pose_limb(["Toon_UpperArm.R", "upper_arm.R"], Vector3.FORWARD, 90.0)
+			# Upper arms straight out to the sides, horizontal.
+			_aim_limb(["Toon_UpperArm.L", "upper_arm.L"], L_OUT)
+			_aim_limb(["Toon_UpperArm.R", "upper_arm.R"], R_OUT)
 		PoseMode.APOSE:
-			_pose_limb(["Toon_UpperArm.L", "upper_arm.L"], Vector3.FORWARD, -45.0)
-			_pose_limb(["Toon_UpperArm.R", "upper_arm.R"], Vector3.FORWARD, 45.0)
+			# Arms ~45 deg down and out.
+			_aim_limb(["Toon_UpperArm.L", "upper_arm.L"], (L_OUT + down).normalized())
+			_aim_limb(["Toon_UpperArm.R", "upper_arm.R"], (R_OUT + down).normalized())
 		PoseMode.WAVE:
-			# Right arm up + bent forearm (a friendly wave).
-			_pose_limb(["Toon_UpperArm.R", "upper_arm.R"], Vector3.FORWARD, 150.0)
-			_pose_limb(["Toon_LowerArm.R", "forearm.R"], Vector3.RIGHT, -40.0)
+			# Right upper arm up-and-out, forearm pointing up (a raised wave).
+			_aim_limb(["Toon_UpperArm.R", "upper_arm.R"], (R_OUT + Vector3.UP).normalized())
+			_aim_limb(["Toon_LowerArm.R", "forearm.R"], Vector3.UP)
 		PoseMode.CROUCH:
-			# Bend hips down and knees, like a crouch.
-			_pose_limb(["Toon_UpperLeg.L", "thigh.L"], Vector3.RIGHT, 55.0)
-			_pose_limb(["Toon_UpperLeg.R", "thigh.R"], Vector3.RIGHT, 55.0)
-			_pose_limb(["Toon_LowerLeg.L", "shin.L"], Vector3.RIGHT, -90.0)
-			_pose_limb(["Toon_LowerLeg.R", "shin.R"], Vector3.RIGHT, -90.0)
+			# Thighs forward+down, shins back+down -> bent-knee crouch.
+			_aim_limb(["Toon_UpperLeg.L", "thigh.L"], (down + Vector3.FORWARD).normalized())
+			_aim_limb(["Toon_UpperLeg.R", "thigh.R"], (down + Vector3.FORWARD).normalized())
+			_aim_limb(["Toon_LowerLeg.L", "shin.L"], (down + Vector3.BACK).normalized())
+			_aim_limb(["Toon_LowerLeg.R", "shin.R"], (down + Vector3.BACK).normalized())
 
 func _setup_overlay() -> void:
 	_overlay_mesh_instance = MeshInstance3D.new()

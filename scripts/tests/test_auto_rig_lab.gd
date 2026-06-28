@@ -53,6 +53,7 @@ func run() -> void:
 	test_bone_name_labels_toggle()
 	test_bone_selection_updates_info_and_highlight()
 	test_test_pose_presets_change_pose()
+	test_idle_walk_swings_blender_named_rig()
 
 # Rigged-skeleton model used for the detection tests. CesiumMan is a small
 # in-repo fixture with a real skinned skeleton, so this test is self-contained.
@@ -439,13 +440,23 @@ func test_test_pose_presets_change_pose() -> void:
 	lab.find_child("ModelPathEdit", true, false).text = "res://assets/models/external_test/noskel/noskel_tall_tpose.glb"
 	lab._load_model_from_ui()
 	var skel: Skeleton3D = lab._skeleton
-	var arm := skel.find_bone("Toon_UpperArm.R")
-	TestAssert.truthy(arm != -1, "arm bone exists")
+	var ua := skel.find_bone("Toon_UpperArm.L")
+	var la := skel.find_bone("Toon_LowerArm.L")
+	TestAssert.truthy(ua != -1 and la != -1, "arm bones exist")
 
-	# T-Pose rotates the upper arm; its pose rotation should differ from identity.
+	# T-Pose must make the upper-arm->lower-arm segment HORIZONTAL (the named pose),
+	# not merely "some rotation". Measure the world direction of the segment.
 	lab._set_pose_mode(lab.PoseMode.TPOSE)
-	var tpose_rot: Quaternion = skel.get_bone_pose_rotation(arm)
-	TestAssert.truthy(tpose_rot.angle_to(Quaternion.IDENTITY) > 0.1, "T-pose rotates the upper arm")
+	skel.force_update_all_bone_transforms()
+	var tdir: Vector3 = (skel.get_bone_global_pose(la).origin - skel.get_bone_global_pose(ua).origin).normalized()
+	TestAssert.truthy(absf(tdir.y) < 0.15, "T-pose arm is horizontal (|y|=%f)" % absf(tdir.y))
+	TestAssert.truthy(absf(tdir.x) > 0.9, "T-pose arm points sideways")
+
+	# A-Pose must be clearly diagonal (down and out), distinct from both T-pose and rest.
+	lab._set_pose_mode(lab.PoseMode.APOSE)
+	skel.force_update_all_bone_transforms()
+	var adir: Vector3 = (skel.get_bone_global_pose(la).origin - skel.get_bone_global_pose(ua).origin).normalized()
+	TestAssert.truthy(adir.y < -0.4 and absf(adir.x) > 0.4, "A-pose arm is down-and-out")
 
 	# Crouch should bend the shin.
 	var shin := skel.find_bone("Toon_LowerLeg.L")
@@ -455,6 +466,28 @@ func test_test_pose_presets_change_pose() -> void:
 	# Back to Idle/Walk: pose mode resets to procedural preview.
 	lab._set_pose_mode(lab.PoseMode.IDLE)
 	TestAssert.equal(lab._pose_mode, lab.PoseMode.IDLE, "idle restores procedural preview")
+	lab.free()
+
+# P2 regression: a Blender-named generated rig must still get the Idle/Walk limb
+# swing (it previously only matched DEF-*/Toon_* names).
+func test_idle_walk_swings_blender_named_rig() -> void:
+	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")
+	var lab = scene.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.root.add_child(lab)
+	# Select Blender naming, then load an auto-fit model so the rig uses it.
+	lab._fitter.naming = lab._fitter.Naming.BLENDER
+	lab.find_child("ModelPathEdit", true, false).text = "res://assets/models/external_test/noskel/noskel_tall_tpose.glb"
+	lab._load_model_from_ui()
+	var skel: Skeleton3D = lab._skeleton
+	var arm := skel.find_bone("upper_arm.R")
+	TestAssert.truthy(arm != -1, "blender-named arm bone exists")
+	# Advance the walk phase to a non-zero point and run the idle preview.
+	lab._pose_mode = lab.PoseMode.IDLE
+	lab._phase = PI / 6.0  # sin(phase*3) != 0
+	lab._pose_slider.value = 1.0
+	lab._pose_preview(0.0)
+	TestAssert.truthy(skel.get_bone_pose_rotation(arm).angle_to(Quaternion.IDENTITY) > 0.01, "idle swing moves the blender-named arm")
 	lab.free()
 
 func test_auto_rig_lab_scene_has_split_rig_and_preview_workspace() -> void:
