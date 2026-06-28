@@ -3,10 +3,60 @@ class_name ToonHumanoidFitter
 
 const AutoRigAnalyzer = preload("res://scripts/auto_rig/auto_rig_analyzer.gd")
 
+# Bone naming presets. Placement logic uses stable LOGICAL keys (e.g. "hips",
+# "upper_arm.L", "index3.R"); the actual bone name written into the skeleton is
+# resolved per preset, so the same rig can be emitted as Toon_* or as
+# Blender/Rigify-style names for retargeting.
+enum Naming { TOON, BLENDER }
+
+# Maps a logical key to a preset-specific bone name. Body keys are listed; finger
+# keys (e.g. "index3.L") are resolved procedurally in _finger_bone_name().
+const _BODY_NAMES := {
+	Naming.TOON: {
+		"hips": "Toon_Hips", "spine": "Toon_Spine", "chest": "Toon_Chest",
+		"neck": "Toon_Neck", "head": "Toon_Head",
+		"shoulder.L": "Toon_Shoulder.L", "upper_arm.L": "Toon_UpperArm.L",
+		"lower_arm.L": "Toon_LowerArm.L", "hand.L": "Toon_Hand.L",
+		"shoulder.R": "Toon_Shoulder.R", "upper_arm.R": "Toon_UpperArm.R",
+		"lower_arm.R": "Toon_LowerArm.R", "hand.R": "Toon_Hand.R",
+		"upper_leg.L": "Toon_UpperLeg.L", "lower_leg.L": "Toon_LowerLeg.L", "foot.L": "Toon_Foot.L",
+		"upper_leg.R": "Toon_UpperLeg.R", "lower_leg.R": "Toon_LowerLeg.R", "foot.R": "Toon_Foot.R",
+	},
+	Naming.BLENDER: {
+		"hips": "spine", "spine": "spine.001", "chest": "spine.002",
+		"neck": "neck", "head": "head",
+		"shoulder.L": "shoulder.L", "upper_arm.L": "upper_arm.L",
+		"lower_arm.L": "forearm.L", "hand.L": "hand.L",
+		"shoulder.R": "shoulder.R", "upper_arm.R": "upper_arm.R",
+		"lower_arm.R": "forearm.R", "hand.R": "hand.R",
+		"upper_leg.L": "thigh.L", "lower_leg.L": "shin.L", "foot.L": "foot.L",
+		"upper_leg.R": "thigh.R", "lower_leg.R": "shin.R", "foot.R": "foot.R",
+	},
+}
+
+const _FINGER_KEYS := ["Thumb", "Index", "Middle", "Ring", "Pinky"]
+
 var _analyzer := AutoRigAnalyzer.new()
 
 # Result of the most recent fit_skeleton() call, exposed for tests / UI.
 var last_fit_info: Dictionary = {}
+
+# Naming preset used by the next fit_skeleton() call.
+var naming: int = Naming.TOON
+
+# Resolves a logical body-bone key to the current preset's bone name.
+func _bone_name(key: String) -> String:
+	return _BODY_NAMES[naming].get(key, key)
+
+# Builds the preset-specific name for a finger segment, e.g.
+# Toon: "Toon_Index3.R"; Blender: "f_index.03.R" (thumb -> "thumb.03.R").
+func _finger_bone_name(finger: String, segment: int, right_side: bool) -> String:
+	var suffix := "R" if right_side else "L"
+	if naming == Naming.BLENDER:
+		var lower := finger.to_lower()
+		var stem := "thumb" if lower == "thumb" else "f_%s" % lower
+		return "%s.0%d.%s" % [stem, segment, suffix]
+	return "Toon_%s%d.%s" % [finger, segment, suffix]
 
 func load_scene_for_preview(scene_path: String) -> Node3D:
 	return _analyzer.load_scene(scene_path)
@@ -129,26 +179,27 @@ func _build_joint_points(bounds: AABB, mesh_entries: Array) -> Dictionary:
 	var upper_r := shoulder_r.lerp(hand_r, 0.34)
 	var lower_r := shoulder_r.lerp(hand_r, 0.67)
 
+	# Keyed by LOGICAL bone key; names are resolved per preset when bones are added.
 	return {
-		"Toon_Hips": Vector3(center.x, y0 + height * 0.52, center.z),
-		"Toon_Spine": Vector3(center.x, y0 + height * 0.63, center.z),
-		"Toon_Chest": Vector3(center.x, y0 + height * 0.74, center.z),
-		"Toon_Neck": Vector3(center.x, y0 + height * 0.84, center.z),
-		"Toon_Head": Vector3(center.x, y0 + height * 0.93, center.z),
-		"Toon_Shoulder.L": shoulder_l,
-		"Toon_UpperArm.L": upper_l,
-		"Toon_LowerArm.L": lower_l,
-		"Toon_Hand.L": hand_l,
-		"Toon_Shoulder.R": shoulder_r,
-		"Toon_UpperArm.R": upper_r,
-		"Toon_LowerArm.R": lower_r,
-		"Toon_Hand.R": hand_r,
-		"Toon_UpperLeg.L": Vector3(center.x - hip_width, y0 + height * 0.47, center.z),
-		"Toon_LowerLeg.L": Vector3(center.x - hip_width, y0 + height * 0.25, center.z),
-		"Toon_Foot.L": Vector3(center.x - hip_width, y0 + height * 0.04, center.z + foot_z),
-		"Toon_UpperLeg.R": Vector3(center.x + hip_width, y0 + height * 0.47, center.z),
-		"Toon_LowerLeg.R": Vector3(center.x + hip_width, y0 + height * 0.25, center.z),
-		"Toon_Foot.R": Vector3(center.x + hip_width, y0 + height * 0.04, center.z + foot_z),
+		"hips": Vector3(center.x, y0 + height * 0.52, center.z),
+		"spine": Vector3(center.x, y0 + height * 0.63, center.z),
+		"chest": Vector3(center.x, y0 + height * 0.74, center.z),
+		"neck": Vector3(center.x, y0 + height * 0.84, center.z),
+		"head": Vector3(center.x, y0 + height * 0.93, center.z),
+		"shoulder.L": shoulder_l,
+		"upper_arm.L": upper_l,
+		"lower_arm.L": lower_l,
+		"hand.L": hand_l,
+		"shoulder.R": shoulder_r,
+		"upper_arm.R": upper_r,
+		"lower_arm.R": lower_r,
+		"hand.R": hand_r,
+		"upper_leg.L": Vector3(center.x - hip_width, y0 + height * 0.47, center.z),
+		"lower_leg.L": Vector3(center.x - hip_width, y0 + height * 0.25, center.z),
+		"foot.L": Vector3(center.x - hip_width, y0 + height * 0.04, center.z + foot_z),
+		"upper_leg.R": Vector3(center.x + hip_width, y0 + height * 0.47, center.z),
+		"lower_leg.R": Vector3(center.x + hip_width, y0 + height * 0.25, center.z),
+		"foot.R": Vector3(center.x + hip_width, y0 + height * 0.04, center.z + foot_z),
 	}
 
 # Finds the hand tip for one side by looking at vertices that lie beyond the
@@ -197,18 +248,21 @@ func _measure_half_width(mesh_entries: Array, target_y: float, band: float, cent
 	return max_dx
 
 func _build_bone_chains(skeleton: Skeleton3D, points: Dictionary, height: float) -> void:
-	_add_bone_chain(skeleton, points, ["Toon_Hips", "Toon_Spine", "Toon_Chest", "Toon_Neck", "Toon_Head"], -1)
-	_add_bone_chain(skeleton, points, ["Toon_Chest", "Toon_Shoulder.L", "Toon_UpperArm.L", "Toon_LowerArm.L", "Toon_Hand.L"], skeleton.find_bone("Toon_Chest"))
-	_add_bone_chain(skeleton, points, ["Toon_Chest", "Toon_Shoulder.R", "Toon_UpperArm.R", "Toon_LowerArm.R", "Toon_Hand.R"], skeleton.find_bone("Toon_Chest"))
-	_add_bone_chain(skeleton, points, ["Toon_Hips", "Toon_UpperLeg.L", "Toon_LowerLeg.L", "Toon_Foot.L"], skeleton.find_bone("Toon_Hips"))
-	_add_bone_chain(skeleton, points, ["Toon_Hips", "Toon_UpperLeg.R", "Toon_LowerLeg.R", "Toon_Foot.R"], skeleton.find_bone("Toon_Hips"))
-	_add_preview_fingers(skeleton, points["Toon_Hand.L"], false, height)
-	_add_preview_fingers(skeleton, points["Toon_Hand.R"], true, height)
+	var chest := _bone_name("chest")
+	var hips := _bone_name("hips")
+	_add_bone_chain(skeleton, points, ["hips", "spine", "chest", "neck", "head"], -1)
+	_add_bone_chain(skeleton, points, ["chest", "shoulder.L", "upper_arm.L", "lower_arm.L", "hand.L"], skeleton.find_bone(chest))
+	_add_bone_chain(skeleton, points, ["chest", "shoulder.R", "upper_arm.R", "lower_arm.R", "hand.R"], skeleton.find_bone(chest))
+	_add_bone_chain(skeleton, points, ["hips", "upper_leg.L", "lower_leg.L", "foot.L"], skeleton.find_bone(hips))
+	_add_bone_chain(skeleton, points, ["hips", "upper_leg.R", "lower_leg.R", "foot.R"], skeleton.find_bone(hips))
+	_add_preview_fingers(skeleton, points["hand.L"], false, height)
+	_add_preview_fingers(skeleton, points["hand.R"], true, height)
 
-func _add_bone_chain(skeleton: Skeleton3D, points: Dictionary, names: Array, forced_parent: int) -> void:
+# `keys` are LOGICAL bone keys; the actual bone name is resolved per preset.
+func _add_bone_chain(skeleton: Skeleton3D, points: Dictionary, keys: Array, forced_parent: int) -> void:
 	var parent := forced_parent
-	for i in range(names.size()):
-		var bone_name: String = names[i]
+	for key in keys:
+		var bone_name: String = _bone_name(key)
 		var existing: int = skeleton.find_bone(bone_name)
 		if existing != -1:
 			parent = existing
@@ -217,17 +271,15 @@ func _add_bone_chain(skeleton: Skeleton3D, points: Dictionary, names: Array, for
 		var idx: int = skeleton.find_bone(bone_name)
 		if parent != -1:
 			skeleton.set_bone_parent(idx, parent)
-		_set_bone_rest_from_global_point(skeleton, idx, parent, points[bone_name])
+		_set_bone_rest_from_global_point(skeleton, idx, parent, points[key])
 		parent = idx
 
 func _add_preview_fingers(skeleton: Skeleton3D, hand_pos: Vector3, right_side: bool, height: float) -> void:
-	var hand_name: String = "Toon_Hand.R" if right_side else "Toon_Hand.L"
-	var hand_index: int = skeleton.find_bone(hand_name)
+	var hand_index: int = skeleton.find_bone(_bone_name("hand.R" if right_side else "hand.L"))
 	if hand_index == -1:
 		return
 	var side: float = 1.0 if right_side else -1.0
-	var names: Array[String] = ["Thumb", "Index", "Middle", "Ring", "Pinky"]
-	for finger_i in range(names.size()):
+	for finger_i in range(_FINGER_KEYS.size()):
 		var spread: float = float(finger_i - 2) * height * 0.005
 		var thumb_push: float = height * 0.012 if finger_i == 0 else 0.0
 		var base_offset := Vector3(
@@ -237,7 +289,7 @@ func _add_preview_fingers(skeleton: Skeleton3D, hand_pos: Vector3, right_side: b
 		)
 		var parent := hand_index
 		for segment in range(1, 4):
-			var bone_name: String = "Toon_%s%d.%s" % [names[finger_i], segment, "R" if right_side else "L"]
+			var bone_name: String = _finger_bone_name(_FINGER_KEYS[finger_i], segment, right_side)
 			skeleton.add_bone(bone_name)
 			var idx: int = skeleton.find_bone(bone_name)
 			skeleton.set_bone_parent(idx, parent)

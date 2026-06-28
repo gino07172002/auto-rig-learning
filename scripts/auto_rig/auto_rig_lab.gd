@@ -8,6 +8,7 @@ const ToonHumanoidFitter = preload("res://scripts/auto_rig/toon_humanoid_fitter.
 @onready var _browse_button: Button = find_child("BrowseModelButton", true, false)
 @onready var _load_button: Button = find_child("LoadModelButton", true, false)
 @onready var _auto_button: Button = find_child("AutoBindButton", true, false)
+@onready var _export_button: Button = find_child("ExportGlbButton", true, false)
 @onready var _status: Label = find_child("StatusLabel", true, false)
 @onready var _bone_summary: Label = find_child("BoneSummaryLabel", true, false)
 @onready var _finger_summary: Label = find_child("FingerSummaryLabel", true, false)
@@ -21,6 +22,7 @@ const ToonHumanoidFitter = preload("res://scripts/auto_rig/toon_humanoid_fitter.
 @onready var _preview_container: SubViewportContainer = find_child("PreviewViewportContainer", true, false)
 @onready var _camera: Camera3D = find_child("Camera3D", true, false)
 @onready var _bone_style_option: OptionButton = find_child("BoneStyleOption", true, false)
+@onready var _naming_option: OptionButton = find_child("NamingOption", true, false)
 
 # Bone overlay display styles, selectable in the preview toolbar.
 enum BoneStyle { LINES, OCTAHEDRAL }
@@ -42,6 +44,7 @@ var _finger_bones: Array[int] = []
 var _anim_player: AnimationPlayer = null
 var _builtin_animation := ""
 var _file_dialog: FileDialog = null
+var _save_dialog: FileDialog = null
 # Orbit camera state (spherical coords around _orbit_pivot).
 var _orbit_yaw := 0.0
 var _orbit_pitch := deg_to_rad(15.0)
@@ -58,8 +61,11 @@ func _ready() -> void:
 	_load_button.pressed.connect(_load_model_from_ui)
 	_auto_button.pressed.connect(_auto_bind_from_ui)
 	_setup_file_dialog()
+	_setup_save_dialog()
 	if _browse_button != null:
 		_browse_button.pressed.connect(_open_file_dialog)
+	if _export_button != null:
+		_export_button.pressed.connect(_open_export_dialog)
 	_finger_slider.value_changed.connect(func(_v): _pose_preview(0.0))
 	_pose_slider.value_changed.connect(func(_v): _pose_preview(0.0))
 	if _bone_style_option != null:
@@ -68,6 +74,13 @@ func _ready() -> void:
 		_bone_style_option.add_item("Octahedral (Blender)", BoneStyle.OCTAHEDRAL)
 		_bone_style_option.selected = _bone_style
 		_bone_style_option.item_selected.connect(_on_bone_style_selected)
+	if _naming_option != null:
+		_naming_option.clear()
+		_naming_option.add_item("Toon", ToonHumanoidFitter.Naming.TOON)
+		_naming_option.add_item("Blender / Rigify", ToonHumanoidFitter.Naming.BLENDER)
+		_naming_option.selected = _fitter.naming
+		# Re-fit the current model so the new naming takes effect immediately.
+		_naming_option.item_selected.connect(_on_naming_selected)
 	# Drag/zoom the preview: route the container's mouse events to the orbit cam.
 	if _preview_container != null:
 		_preview_container.gui_input.connect(_on_preview_gui_input)
@@ -103,6 +116,37 @@ func _open_file_dialog() -> void:
 func _on_model_file_selected(path: String) -> void:
 	_path_edit.text = path
 	_load_model_from_ui()
+
+# Save dialog for exporting the rigged model to a portable .glb.
+func _setup_save_dialog() -> void:
+	_save_dialog = FileDialog.new()
+	_save_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	_save_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	_save_dialog.use_native_dialog = true
+	_save_dialog.title = "Export rigged model as glTF"
+	_save_dialog.add_filter("*.glb", "glTF binary")
+	_save_dialog.file_selected.connect(_on_export_path_selected)
+	add_child(_save_dialog)
+
+func _open_export_dialog() -> void:
+	if _skeleton == null:
+		_status.text = "Nothing to export: load and rig a model first"
+		return
+	# Suggest a filename based on the loaded model.
+	var base := _path_edit.text.get_file().get_basename()
+	if base == "":
+		base = "rigged_model"
+	_save_dialog.current_file = "%s_rigged.glb" % base
+	_save_dialog.popup_centered_ratio(0.6)
+
+func _on_export_path_selected(path: String) -> void:
+	if not path.to_lower().ends_with(".glb"):
+		path += ".glb"
+	var err: int = _fitter.export_to_glb(_loaded_scene, path)
+	if err == OK:
+		_status.text = "Exported rigged GLB to %s" % path
+	else:
+		_status.text = "Export failed (error %d)" % err
 
 # Resolves a model path (res:// or absolute) to a filesystem directory for the
 # dialog's starting location, or "" if it cannot be determined.
@@ -438,6 +482,13 @@ func _setup_overlay() -> void:
 	_octa_material.emission_energy_multiplier = 0.55
 	_overlay_mesh_instance.material_override = _line_material
 	_rig_overlay_root.add_child(_overlay_mesh_instance)
+
+# Switching naming only matters for generated (auto-fit) rigs; re-run the load so
+# the skeleton is rebuilt with the chosen preset's bone names.
+func _on_naming_selected(index: int) -> void:
+	_fitter.naming = index
+	if _last_report.get("auto_fit_candidate", false):
+		_load_model_from_ui()
 
 func _on_bone_style_selected(index: int) -> void:
 	_bone_style = index

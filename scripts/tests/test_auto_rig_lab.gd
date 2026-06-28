@@ -47,6 +47,8 @@ func run() -> void:
 	test_analyzer_accepts_z_up_model_as_auto_fit_candidate()
 	test_auto_rig_lab_scene_has_split_rig_and_preview_workspace()
 	test_bone_style_switch_changes_overlay()
+	test_export_button_writes_rigged_glb()
+	test_fitter_blender_naming_preset()
 
 # Rigged-skeleton model used for the detection tests. CesiumMan is a small
 # in-repo fixture with a real skinned skeleton, so this test is self-contained.
@@ -341,6 +343,23 @@ func test_analyzer_accepts_z_up_model_as_auto_fit_candidate() -> void:
 	TestAssert.equal(r.get("status", ""), "ok", "z-up model imports")
 	TestAssert.truthy(r.get("auto_fit_candidate", false), "z-up tall model is an auto-fit candidate")
 
+# The Blender naming preset must emit Blender/Rigify-style bone names instead of
+# Toon_*, while keeping the same bone count and structure.
+func test_fitter_blender_naming_preset() -> void:
+	var fitter = load("res://scripts/auto_rig/toon_humanoid_fitter.gd").new()
+	fitter.naming = fitter.Naming.BLENDER
+	var root: Node3D = _load_unrigged(fitter)
+	var skeleton: Skeleton3D = fitter.fit_skeleton(root)
+	TestAssert.truthy(skeleton != null, "blender-named skeleton generated")
+	TestAssert.equal(skeleton.get_bone_count(), 49, "same bone count across presets")
+	# Blender-style names present, Toon names absent.
+	TestAssert.truthy(skeleton.find_bone("upper_arm.L") != -1, "blender upper_arm.L exists")
+	TestAssert.truthy(skeleton.find_bone("forearm.R") != -1, "blender forearm.R exists")
+	TestAssert.truthy(skeleton.find_bone("thigh.L") != -1, "blender thigh.L exists")
+	TestAssert.truthy(skeleton.find_bone("f_index.03.R") != -1, "blender finger f_index.03.R exists")
+	TestAssert.truthy(skeleton.find_bone("Toon_Hand.L") == -1, "no Toon names under blender preset")
+	root.free()
+
 func test_auto_rig_lab_scene_has_split_rig_and_preview_workspace() -> void:
 	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")
 	TestAssert.truthy(scene != null, "auto rig lab scene exists")
@@ -352,7 +371,31 @@ func test_auto_rig_lab_scene_has_split_rig_and_preview_workspace() -> void:
 	TestAssert.truthy(root.find_child("RigQualityLabel", true, false) != null, "rig quality label exists")
 	TestAssert.truthy(root.find_child("RigOverlayRoot", true, false) != null, "skeleton overlay root exists")
 	TestAssert.truthy(root.find_child("BoneStyleOption", true, false) != null, "bone style dropdown exists")
+	TestAssert.truthy(root.find_child("ExportGlbButton", true, false) != null, "export glb button exists")
 	root.free()
+
+# The Export button must write a valid .glb that re-imports with its skeleton,
+# exercising the full load -> rig -> export-via-UI path.
+func test_export_button_writes_rigged_glb() -> void:
+	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")
+	var lab = scene.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.root.add_child(lab)
+	lab.find_child("ModelPathEdit", true, false).text = "res://assets/models/external_test/noskel/noskel_tall_tpose.glb"
+	lab._load_model_from_ui()
+	TestAssert.truthy(lab._skeleton != null, "model rigged before export")
+
+	var out_path := ProjectSettings.globalize_path("user://_ui_export_test.glb")
+	lab._on_export_path_selected(out_path)
+	TestAssert.truthy(FileAccess.file_exists(out_path), "export button wrote a glb file")
+
+	# Re-import to confirm the exported rig is valid.
+	var analyzer = load("res://scripts/auto_rig/auto_rig_analyzer.gd").new()
+	var report: Dictionary = analyzer.analyze_scene_path(out_path)
+	TestAssert.equal(report.get("status", ""), "ok", "exported glb re-imports")
+	TestAssert.truthy(report.get("has_skeleton", false), "exported glb has a skeleton")
+	lab.free()
+	DirAccess.remove_absolute(out_path)
 
 # The bone overlay must switch between Lines and the Blender-style octahedral
 # (grey cone) display without error, and actually rebuild the overlay geometry.

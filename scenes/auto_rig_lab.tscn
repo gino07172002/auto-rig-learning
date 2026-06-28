@@ -57,9 +57,24 @@ text = "Browse..."
 layout_mode = 2
 text = "Load Model"
 
+[node name="NamingRow" type="HBoxContainer" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="NamingLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox/NamingRow"]
+layout_mode = 2
+text = "Skeleton naming:"
+
+[node name="NamingOption" type="OptionButton" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox/NamingRow"]
+layout_mode = 2
+
 [node name="AutoBindButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
 layout_mode = 2
 text = "Auto Bind Toon Skeleton"
+
+[node name="ExportGlbButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+layout_mode = 2
+text = "Export Rigged GLB..."
 
 [node name="StatusLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
 layout_mode = 2
