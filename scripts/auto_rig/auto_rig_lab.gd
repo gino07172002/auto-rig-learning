@@ -298,6 +298,7 @@ func _load_model_from_ui() -> void:
 	_cache_skeleton()
 	_rebuild_bone_labels()
 	_setup_builtin_animation()
+	_update_pose_controls_enabled()
 	if report.get("auto_fit_candidate", false) and _skeleton != null:
 		_bone_summary.text = "Generated preview  |  Bones %d  |  Primary %s" % [
 			_skeleton.get_bone_count(),
@@ -625,6 +626,24 @@ func _connect_pose_button(node_name: String, mode: int) -> void:
 func _set_pose_mode(mode: int) -> void:
 	_pose_mode = mode
 	_pose_preview(0.0)
+
+# Pose presets and naming only affect GENERATED rigs we drive ourselves. When an
+# imported model's own AnimationPlayer owns the pose, disable those controls (and
+# explain why) so the UI doesn't offer no-ops.
+func _update_pose_controls_enabled() -> void:
+	var owned_by_anim: bool = _anim_player != null and _anim_player.is_playing()
+	var generated: bool = bool(_last_report.get("auto_fit_candidate", false))
+	var pose_usable: bool = generated and not owned_by_anim
+	for node_name in ["PoseIdle", "PoseTPose", "PoseAPose", "PoseWave", "PoseCrouch"]:
+		var btn: Button = find_child(node_name, true, false)
+		if btn != null:
+			btn.disabled = not pose_usable
+	if _naming_option != null:
+		# Naming changes require re-generating, so only meaningful for generated rigs.
+		_naming_option.disabled = not generated
+	var pose_label: Label = find_child("PoseToolbarLabel", true, false)
+	if pose_label != null:
+		pose_label.text = "Test pose:" if pose_usable else "Test pose: (generated rigs only)"
 
 # Applies a static demo pose by rotating upper-arm / forearm / thigh / shin
 # bones. Bone names cover the Toon and Blender presets used by the generated rig.

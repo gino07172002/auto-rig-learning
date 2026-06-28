@@ -54,6 +54,7 @@ func run() -> void:
 	test_bone_selection_updates_info_and_highlight()
 	test_test_pose_presets_change_pose()
 	test_idle_walk_swings_blender_named_rig()
+	test_pose_controls_disabled_for_imported_animation()
 
 # Rigged-skeleton model used for the detection tests. CesiumMan is a small
 # in-repo fixture with a real skinned skeleton, so this test is self-contained.
@@ -488,6 +489,27 @@ func test_idle_walk_swings_blender_named_rig() -> void:
 	lab._pose_slider.value = 1.0
 	lab._pose_preview(0.0)
 	TestAssert.truthy(skel.get_bone_pose_rotation(arm).angle_to(Quaternion.IDENTITY) > 0.01, "idle swing moves the blender-named arm")
+	lab.free()
+
+# Pose presets are no-ops on an imported rig whose own AnimationPlayer owns the
+# pose, so those controls must be disabled (with a generated-rig hint), while an
+# auto-fit model keeps them enabled.
+func test_pose_controls_disabled_for_imported_animation() -> void:
+	var scene: PackedScene = load("res://scenes/auto_rig_lab.tscn")
+	var lab = scene.instantiate()
+	var tree := Engine.get_main_loop() as SceneTree
+	tree.root.add_child(lab)
+
+	# Imported rig with its own animation (CesiumMan): pose buttons disabled.
+	lab.find_child("ModelPathEdit", true, false).text = RIGGED_MODEL
+	lab._load_model_from_ui()
+	var tpose_btn: Button = lab.find_child("PoseTPose", true, false)
+	TestAssert.truthy(tpose_btn.disabled, "pose button disabled for imported animated rig")
+
+	# Auto-fit generated rig: pose buttons enabled.
+	lab.find_child("ModelPathEdit", true, false).text = "res://assets/models/external_test/noskel/noskel_tall_tpose.glb"
+	lab._load_model_from_ui()
+	TestAssert.falsy(tpose_btn.disabled, "pose button enabled for generated rig")
 	lab.free()
 
 func test_auto_rig_lab_scene_has_split_rig_and_preview_workspace() -> void:
