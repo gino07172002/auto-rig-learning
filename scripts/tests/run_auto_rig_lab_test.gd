@@ -10,7 +10,9 @@ func _init() -> void:
 func _run() -> void:
 	TestAssert.reset()
 	var test = load("res://scripts/tests/test_auto_rig_lab.gd").new()
-	test.run()
+	# run() may await (e.g. the AI-pose e2e renders frames), so await it before
+	# tallying, or finish() would run before async tests complete.
+	await test.run()
 	# Exits non-zero (and prints FAILED) if any assertion failed, so a green
 	# message and exit 0 reliably mean the suite actually passed.
 	TestAssert.finish(self, "Auto rig lab tests")

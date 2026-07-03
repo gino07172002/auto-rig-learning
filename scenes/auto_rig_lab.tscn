@@ -11,139 +11,218 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_auto")
 
-[node name="WorkspaceSplit" type="HSplitContainer" parent="."]
+[node name="WorkspaceSplit" type="HBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-grow_horizontal = 2
+grow_horizontal = 1
 grow_vertical = 2
-split_offset = 430
 
 [node name="AutoRigPanel" type="PanelContainer" parent="WorkspaceSplit"]
-custom_minimum_size = Vector2(430, 0)
+custom_minimum_size = Vector2(380, 0)
 layout_mode = 2
+size_flags_horizontal = 0
 
 [node name="LeftMargin" type="MarginContainer" parent="WorkspaceSplit/AutoRigPanel"]
 layout_mode = 2
-theme_override_constants/margin_left = 18
-theme_override_constants/margin_top = 18
-theme_override_constants/margin_right = 18
-theme_override_constants/margin_bottom = 18
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
 
-[node name="LeftVBox" type="VBoxContainer" parent="WorkspaceSplit/AutoRigPanel/LeftMargin"]
+[node name="LeftScroll" type="ScrollContainer" parent="WorkspaceSplit/AutoRigPanel/LeftMargin"]
 layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="LeftVBox" type="VBoxContainer" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_constants/separation = 12
 
-[node name="TitleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="TitleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Toon Auto Rig Lab"
-theme_override_font_sizes/font_size = 26
+theme_override_font_sizes/font_size = 20
 
-[node name="SubtitleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="SubtitleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Import a 3D character, detect a game skeleton, test hands and motion live."
 autowrap_mode = 3
 
-[node name="ModelPathEdit" type="LineEdit" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="ModelPathEdit" type="LineEdit" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "res://assets/models/external_test/CesiumMan.glb"
 
-[node name="BrowseModelButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="BrowseModelButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Browse..."
 
-[node name="LoadModelButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="LoadModelButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Load Model"
 
-[node name="NamingRow" type="HBoxContainer" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="RecentModelRow" type="HBoxContainer" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="NamingLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox/NamingRow"]
+[node name="RecentModelLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox/RecentModelRow"]
+layout_mode = 2
+text = "Recent model:"
+
+[node name="RecentModelOption" type="OptionButton" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox/RecentModelRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="RigModeRow" type="HBoxContainer" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RigModeLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox/RigModeRow"]
+layout_mode = 2
+text = "Rig mode:"
+
+[node name="RigModeOption" type="OptionButton" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox/RigModeRow"]
+layout_mode = 2
+
+[node name="NamingRow" type="HBoxContainer" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="NamingLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox/NamingRow"]
 layout_mode = 2
 text = "Skeleton naming:"
 
-[node name="NamingOption" type="OptionButton" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox/NamingRow"]
+[node name="NamingOption" type="OptionButton" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox/NamingRow"]
 layout_mode = 2
 
-[node name="AutoBindButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="SkinMethodRow" type="HBoxContainer" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SkinMethodLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox/SkinMethodRow"]
+layout_mode = 2
+text = "Skin weights:"
+
+[node name="SkinMethodOption" type="OptionButton" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox/SkinMethodRow"]
+layout_mode = 2
+
+[node name="DetectJointsButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
+layout_mode = 2
+text = "1. Detect Joints (review)"
+
+[node name="DetectJointsAiButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
+layout_mode = 2
+text = "1b. Detect Joints (AI pose)"
+
+[node name="DetectionReportLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
+layout_mode = 2
+text = "Detected parts: -"
+autowrap_mode = 3
+
+[node name="SymmetricJointsCheck" type="CheckBox" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
+layout_mode = 2
+button_pressed = true
+text = "Symmetric joints"
+
+[node name="ConfirmBindButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
+layout_mode = 2
+disabled = true
+text = "2. Confirm & Bind"
+
+[node name="AutoBindButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Auto Bind Toon Skeleton"
 
-[node name="ExportGlbButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="LoadAnimationButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
+layout_mode = 2
+text = "Load Animation (retarget FBX)..."
+
+[node name="RecentAnimationRow" type="HBoxContainer" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RecentAnimationLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox/RecentAnimationRow"]
+layout_mode = 2
+text = "Recent anim:"
+
+[node name="RecentAnimationOption" type="OptionButton" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox/RecentAnimationRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+
+[node name="ExportGlbButton" type="Button" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Export Rigged GLB..."
 
-[node name="StatusLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="StatusLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Waiting for model..."
 autowrap_mode = 3
 
-[node name="BoneSummaryLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="BoneSummaryLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Bones: -"
 autowrap_mode = 3
 
-[node name="FingerSummaryLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="FingerSummaryLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Fingers: -"
 autowrap_mode = 3
 
-[node name="RigQualityLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="RigQualityLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Rig score: -"
 autowrap_mode = 3
 
-[node name="ShoulderScaleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="ShoulderScaleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Shoulder width (auto-fit x)"
 
-[node name="ShoulderScaleSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="ShoulderScaleSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 min_value = 0.5
 max_value = 1.8
 step = 0.01
 value = 1.0
 
-[node name="ArmScaleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="ArmScaleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Arm length (auto-fit x)"
 
-[node name="ArmScaleSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="ArmScaleSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 min_value = 0.5
 max_value = 1.8
 step = 0.01
 value = 1.0
 
-[node name="LegScaleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="LegScaleLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Leg length (auto-fit x)"
 
-[node name="LegScaleSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="LegScaleSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 min_value = 0.5
 max_value = 1.8
 step = 0.01
 value = 1.0
 
-[node name="FineTuneLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="FineTuneLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Finger curl"
 
-[node name="FingerCurlSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="FingerCurlSlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 min_value = -15.0
 max_value = 80.0
 value = 32.0
 
-[node name="PoseLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="PoseLabel" type="Label" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 text = "Preview motion intensity"
 
-[node name="PoseIntensitySlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftVBox"]
+[node name="PoseIntensitySlider" type="HSlider" parent="WorkspaceSplit/AutoRigPanel/LeftMargin/LeftScroll/LeftVBox"]
 layout_mode = 2
 max_value = 1.0
 step = 0.01
@@ -151,6 +230,8 @@ value = 0.65
 
 [node name="PreviewPanel" type="PanelContainer" parent="WorkspaceSplit"]
 layout_mode = 2
+size_flags_horizontal = 3
+clip_contents = true
 
 [node name="RightStack" type="VBoxContainer" parent="WorkspaceSplit/PreviewPanel"]
 layout_mode = 2
@@ -166,20 +247,95 @@ theme_override_constants/separation = 8
 
 [node name="BoneStyleLabel" type="Label" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
 layout_mode = 2
-text = "Bone style:"
+text = "Bones:"
 
 [node name="BoneStyleOption" type="OptionButton" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
 layout_mode = 2
 
 [node name="ShowNamesCheck" type="CheckBox" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
 layout_mode = 2
-text = "Bone names"
+text = "Names"
+
+[node name="TexturedCheck" type="CheckBox" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
+layout_mode = 2
+button_pressed = true
+text = "Texture"
+
+[node name="LoopCheck" type="CheckBox" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
+layout_mode = 2
+button_pressed = true
+text = "Loop"
+
+[node name="CoordLabel" type="Label" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
+layout_mode = 2
+text = "Axes:"
+
+[node name="CoordOption" type="OptionButton" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
+layout_mode = 2
 
 [node name="SelectedBoneLabel" type="Label" parent="WorkspaceSplit/PreviewPanel/RightStack/PreviewToolbar"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "Selected: (click a bone)"
+text = "Bone: -"
 horizontal_alignment = 2
+
+[node name="AnimationTimeline" type="HBoxContainer" parent="WorkspaceSplit/PreviewPanel/RightStack"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="AnimationPlayPauseButton" type="Button" parent="WorkspaceSplit/PreviewPanel/RightStack/AnimationTimeline"]
+custom_minimum_size = Vector2(72, 0)
+layout_mode = 2
+disabled = true
+text = "Play"
+
+[node name="AnimationCurrentTimeLabel" type="Label" parent="WorkspaceSplit/PreviewPanel/RightStack/AnimationTimeline"]
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+text = "0:00.00"
+horizontal_alignment = 2
+
+[node name="AnimationTimelineSlider" type="HSlider" parent="WorkspaceSplit/PreviewPanel/RightStack/AnimationTimeline"]
+layout_mode = 2
+size_flags_horizontal = 3
+step = 0.001
+
+[node name="AnimationDurationLabel" type="Label" parent="WorkspaceSplit/PreviewPanel/RightStack/AnimationTimeline"]
+custom_minimum_size = Vector2(64, 0)
+layout_mode = 2
+text = "0:00.00"
+
+[node name="ViewToolbar" type="HBoxContainer" parent="WorkspaceSplit/PreviewPanel/RightStack"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ViewLabel" type="Label" parent="WorkspaceSplit/PreviewPanel/RightStack/ViewToolbar"]
+layout_mode = 2
+text = "View:"
+
+[node name="ViewRecenter" type="Button" parent="WorkspaceSplit/PreviewPanel/RightStack/ViewToolbar"]
+layout_mode = 2
+text = "Center"
+
+[node name="ViewFront" type="Button" parent="WorkspaceSplit/PreviewPanel/RightStack/ViewToolbar"]
+layout_mode = 2
+text = "Front"
+
+[node name="ViewBack" type="Button" parent="WorkspaceSplit/PreviewPanel/RightStack/ViewToolbar"]
+layout_mode = 2
+text = "Back"
+
+[node name="ViewLeft" type="Button" parent="WorkspaceSplit/PreviewPanel/RightStack/ViewToolbar"]
+layout_mode = 2
+text = "Left"
+
+[node name="ViewRight" type="Button" parent="WorkspaceSplit/PreviewPanel/RightStack/ViewToolbar"]
+layout_mode = 2
+text = "Right"
+
+[node name="ViewTop" type="Button" parent="WorkspaceSplit/PreviewPanel/RightStack/ViewToolbar"]
+layout_mode = 2
+text = "Top"
 
 [node name="PoseToolbar" type="HBoxContainer" parent="WorkspaceSplit/PreviewPanel/RightStack"]
 layout_mode = 2
@@ -210,8 +366,9 @@ layout_mode = 2
 text = "Crouch"
 
 [node name="PreviewViewportContainer" type="SubViewportContainer" parent="WorkspaceSplit/PreviewPanel/RightStack"]
-custom_minimum_size = Vector2(720, 640)
+custom_minimum_size = Vector2(420, 420)
 layout_mode = 2
+size_flags_horizontal = 3
 size_flags_vertical = 3
 stretch = true
 

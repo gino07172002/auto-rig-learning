@@ -9,6 +9,14 @@ const AutoRigAnalyzer = preload("res://scripts/auto_rig/auto_rig_analyzer.gd")
 # Blender/Rigify-style names for retargeting.
 enum Naming { TOON, BLENDER }
 
+# Skin-weight algorithm. PROXIMITY is the original per-vertex distance-to-bone
+# method (fast, but weights can bleed across narrow gaps like armpits/fingers).
+# HEAT_DIFFUSION relaxes weights across the mesh surface graph so they flow along
+# the surface instead of jumping the gap — closer to Blender Bone Heat / Mixamo.
+# Kept switchable so the old method stays available until the new one is trusted.
+enum SkinMethod { PROXIMITY, HEAT_DIFFUSION }
+var skin_method: int = SkinMethod.PROXIMITY
+
 # Maps a logical key to a preset-specific bone name. Body keys are listed; finger
 # keys (e.g. "index3.L") are resolved procedurally in _finger_bone_name().
 const _BODY_NAMES := {
@@ -49,6 +57,14 @@ var naming: int = Naming.TOON
 var shoulder_scale: float = 1.0
 var arm_scale: float = 1.0
 var leg_scale: float = 1.0
+
+# Set by the last detect_joint_points()/fit, flagging which key points were
+# genuinely measured from the mesh silhouette vs. fallback-guessed. Keyed by the
+# same logical keys as the points dict; value is true when measured.
+var last_point_measured: Dictionary = {}
+
+# Detection summary (human-readable) for the UI: which body regions were found.
+var last_detection: Dictionary = {}
 
 # Resolves a logical body-bone key to the current preset's bone name.
 func _bone_name(key: String) -> String:
@@ -92,7 +108,40 @@ func export_to_glb(model_root: Node3D, out_path: String) -> int:
 # skinning, not just a floating overlay). Returns the generated Skeleton3D,
 # which is added as a child of model_root with the skinned meshes re-parented
 # under it.
-func fit_skeleton(model_root: Node3D) -> Skeleton3D:
+# Detects the key joint points from the mesh WITHOUT building or binding a
+# skeleton, so the UI can show them for review/adjustment before committing.
+# Returns { "points": Dictionary(logical key -> Vector3 model-space),
+#           "measured": Dictionary(key -> bool), "height": float } or {} on
+# failure. The points are in model_root-LOCAL space (Z-up already corrected),
+# matching what fit_skeleton() consumes.
+func detect_joint_points(model_root: Node3D) -> Dictionary:
+	last_point_measured = {}
+	last_detection = {}
+	if model_root == null:
+		return {}
+	var mesh_entries: Array = _gather_local_entries(model_root)
+	if mesh_entries.is_empty():
+		return {}
+	# Correct Z-up so detected points are in the same upright space fit uses.
+	if _detect_up_axis(_entries_bounds(mesh_entries)) == "Z":
+		var fix := Transform3D(Basis(Vector3.RIGHT, -PI / 2.0), Vector3.ZERO)
+		for entry in mesh_entries:
+			entry["transform"] = fix * (entry["transform"] as Transform3D)
+	var bounds: AABB = _entries_bounds(mesh_entries)
+	if bounds.size.length() <= 0.001:
+		return {}
+	var points: Dictionary = _build_joint_points(bounds, mesh_entries)
+	return {
+		"points": points,
+		"measured": last_point_measured.duplicate(),
+		"height": bounds.size.y,
+		"detection": last_detection.duplicate(),
+	}
+
+# Builds a toon humanoid skeleton AND binds the model meshes to it. If
+# `preset_points` is supplied (e.g. user-edited joints from detect_joint_points),
+# those are used verbatim instead of re-measuring, so manual adjustments stick.
+func fit_skeleton(model_root: Node3D, preset_points: Dictionary = {}) -> Skeleton3D:
 	last_fit_info = {}
 	if model_root == null:
 		return null
@@ -119,7 +168,8 @@ func fit_skeleton(model_root: Node3D) -> Skeleton3D:
 
 	var skeleton := Skeleton3D.new()
 	skeleton.name = "GeneratedToonHumanoidSkeleton"
-	var points: Dictionary = _build_joint_points(bounds, mesh_entries)
+	# Use the caller's edited joints when given; otherwise measure from the mesh.
+	var points: Dictionary = preset_points if not preset_points.is_empty() else _build_joint_points(bounds, mesh_entries)
 	_build_bone_chains(skeleton, points, bounds.size.y)
 	# Initialise the live pose to the rest pose so the skeleton (and any skinned
 	# mesh) starts in bind position instead of collapsing toward the origin.
@@ -176,8 +226,31 @@ func _build_joint_points(bounds: AABB, mesh_entries: Array) -> Dictionary:
 	# arms-down -> low & narrow) instead of forcing a horizontal T-pose.
 	var shoulder_l := Vector3(center.x - shoulder_width, shoulder_y, center.z)
 	var shoulder_r := Vector3(center.x + shoulder_width, shoulder_y, center.z)
-	var hand_l := _measure_hand_tip(mesh_entries, center, shoulder_width, shoulder_l, false, height)
-	var hand_r := _measure_hand_tip(mesh_entries, center, shoulder_width, shoulder_r, true, height)
+	var hand_l_res: Dictionary = _measure_hand_tip(mesh_entries, center, shoulder_width, shoulder_l, false, height)
+	var hand_r_res: Dictionary = _measure_hand_tip(mesh_entries, center, shoulder_width, shoulder_r, true, height)
+	var hand_l: Vector3 = hand_l_res["point"]
+	var hand_r: Vector3 = hand_r_res["point"]
+
+	# Record which key points were genuinely measured vs. guessed, for the UI.
+	# Body-center points (spine chain, hips) are always derived from bounds, so
+	# they count as measured; shoulders from the silhouette width; hands from the
+	# arm-mass search (fallback => flagged).
+	var shoulders_measured := shoulder_span > height * 0.02
+	last_point_measured = {
+		"hips": true, "spine": true, "chest": true, "neck": true, "head": true,
+		"shoulder.L": shoulders_measured, "shoulder.R": shoulders_measured,
+		"upper_arm.L": hand_l_res["measured"], "lower_arm.L": hand_l_res["measured"], "hand.L": hand_l_res["measured"],
+		"upper_arm.R": hand_r_res["measured"], "lower_arm.R": hand_r_res["measured"], "hand.R": hand_r_res["measured"],
+		"upper_leg.L": hip_span > height * 0.02, "lower_leg.L": true, "foot.L": true,
+		"upper_leg.R": hip_span > height * 0.02, "lower_leg.R": true, "foot.R": true,
+	}
+	last_detection = {
+		"spine": true,
+		"shoulders": shoulders_measured,
+		"arms.L": hand_l_res["measured"], "arms.R": hand_r_res["measured"],
+		"hips": hip_span > height * 0.02,
+		"legs": true,
+	}
 	# arm_scale lengthens/shortens the arm by scaling the shoulder->hand vector.
 	hand_l = shoulder_l + (hand_l - shoulder_l) * arm_scale
 	hand_r = shoulder_r + (hand_r - shoulder_r) * arm_scale
@@ -221,7 +294,9 @@ func _build_joint_points(bounds: AABB, mesh_entries: Array) -> Dictionary:
 # Finds the hand tip for one side by looking at vertices that lie beyond the
 # torso width on that side and taking the one furthest from the shoulder. This
 # adapts to T-pose (tip high & far out), A-pose, and arms-straight-down.
-func _measure_hand_tip(mesh_entries: Array, center: Vector3, shoulder_width: float, shoulder: Vector3, right_side: bool, height: float) -> Vector3:
+# Returns { "point": Vector3, "measured": bool } — measured is false when no arm
+# mass was found and a fallback stub was used.
+func _measure_hand_tip(mesh_entries: Array, center: Vector3, shoulder_width: float, shoulder: Vector3, right_side: bool, height: float) -> Dictionary:
 	var sign := 1.0 if right_side else -1.0
 	# Only consider the upper body so feet/legs never get mistaken for hands.
 	var min_y := center.y - height * 0.25
@@ -243,8 +318,8 @@ func _measure_hand_tip(mesh_entries: Array, center: Vector3, shoulder_width: flo
 	# No clear arm mass found (e.g. a limbless blob): fall back to a short
 	# horizontal stub so the chain is still valid but doesn't distort anything.
 	if best_dist < height * 0.05:
-		return shoulder + Vector3(sign * height * 0.18, 0.0, 0.0)
-	return best
+		return {"point": shoulder + Vector3(sign * height * 0.18, 0.0, 0.0), "measured": false}
+	return {"point": best, "measured": true}
 
 # Returns the average horizontal distance from center.x of mesh vertices that
 # fall within +/- band of target_y. Used to size the body to the actual mesh.
@@ -389,6 +464,14 @@ func _build_skinned_mesh(mesh: Mesh, xform: Transform3D, segments: Array, bone_g
 	if mesh == null:
 		return null
 	var out := ArrayMesh.new()
+	# Heat diffusion must see the WHOLE mesh at once: a material split becomes a
+	# separate Godot surface, so per-surface solving would break diffusion at every
+	# material seam. Solve all surfaces together (one welded graph spanning them),
+	# then scatter the result back per surface. Proximity is per-vertex, so it stays
+	# per-surface. `heat_weights[s]` = {bones, weights} for surface s, or empty.
+	var heat_weights: Array = []
+	if skin_method == SkinMethod.HEAT_DIFFUSION:
+		heat_weights = _solve_heat_for_mesh(mesh, xform, segments)
 	for s in range(mesh.get_surface_count()):
 		var arrays: Array = mesh.surface_get_arrays(s)
 		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
@@ -405,14 +488,12 @@ func _build_skinned_mesh(mesh: Mesh, xform: Transform3D, segments: Array, bone_g
 		var baked_verts := PackedVector3Array()
 		baked_verts.resize(verts.size())
 		for vi in range(verts.size()):
-			var world_v: Vector3 = xform * verts[vi]
-			baked_verts[vi] = world_v
-			var assignment: Dictionary = _weights_for_point(world_v, segments)
-			var idx_list: Array = assignment["bones"]
-			var w_list: Array = assignment["weights"]
-			for k in range(4):
-				bones[vi * 4 + k] = idx_list[k]
-				weights[vi * 4 + k] = w_list[k]
+			baked_verts[vi] = xform * verts[vi]
+		if skin_method == SkinMethod.HEAT_DIFFUSION:
+			bones = heat_weights[s]["bones"]
+			weights = heat_weights[s]["weights"]
+		else:
+			_assign_weights_proximity(baked_verts, segments, bones, weights)
 		arrays[Mesh.ARRAY_VERTEX] = baked_verts
 		# Rotate normals by the same basis so lighting stays correct.
 		if arrays[Mesh.ARRAY_NORMAL] != null:
@@ -431,6 +512,283 @@ func _build_skinned_mesh(mesh: Mesh, xform: Transform3D, segments: Array, bone_g
 	if out.get_surface_count() == 0:
 		return null
 	return out
+
+# PROXIMITY method: per-vertex distance-to-bone weights (original behaviour).
+# Fills `bones`/`weights` (4 per vertex) for every baked vertex.
+func _assign_weights_proximity(baked_verts: PackedVector3Array, segments: Array, bones: PackedInt32Array, weights: PackedFloat32Array) -> void:
+	for vi in range(baked_verts.size()):
+		var assignment: Dictionary = _weights_for_point(baked_verts[vi], segments)
+		var idx_list: Array = assignment["bones"]
+		var w_list: Array = assignment["weights"]
+		for k in range(4):
+			bones[vi * 4 + k] = idx_list[k]
+			weights[vi * 4 + k] = w_list[k]
+
+# Solves heat diffusion across ALL of a mesh's surfaces at once, so weights flow
+# across material seams (each material is a separate Godot surface). Concatenates
+# every surface's baked vertices + triangles into one combined buffer (per-surface
+# index offset), runs one heat solve, then slices the result back per surface.
+# Returns an Array indexed by surface: { "bones": PackedInt32Array, "weights":
+# PackedFloat32Array }, each sized 4 * that surface's vertex count.
+func _solve_heat_for_mesh(mesh: Mesh, xform: Transform3D, segments: Array) -> Array:
+	var surface_count := mesh.get_surface_count()
+	var combined_verts := PackedVector3Array()
+	var combined_index := PackedInt32Array()
+	var offsets := PackedInt32Array()   # combined-buffer start index per surface
+	var counts := PackedInt32Array()    # vertex count per surface
+	offsets.resize(surface_count)
+	counts.resize(surface_count)
+	for s in range(surface_count):
+		var arrays: Array = mesh.surface_get_arrays(s)
+		var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		offsets[s] = combined_verts.size()
+		counts[s] = verts.size()
+		var base := offsets[s]
+		for vi in range(verts.size()):
+			combined_verts.append(xform * verts[vi])
+		# Append this surface's triangles, shifted by the surface's vertex offset.
+		var idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+		if idx.size() > 0:
+			for k in idx:
+				combined_index.append(base + k)
+		else:
+			# Unindexed surface: sequential triangles.
+			for k in range(verts.size()):
+				combined_index.append(base + k)
+
+	# One combined "arrays" payload carrying just what the solver reads.
+	var combined_arrays: Array = []
+	combined_arrays.resize(Mesh.ARRAY_MAX)
+	combined_arrays[Mesh.ARRAY_VERTEX] = combined_verts
+	combined_arrays[Mesh.ARRAY_INDEX] = combined_index
+
+	var total := combined_verts.size()
+	var all_bones := PackedInt32Array()
+	var all_weights := PackedFloat32Array()
+	all_bones.resize(total * 4)
+	all_weights.resize(total * 4)
+	_assign_weights_heat(combined_verts, combined_arrays, segments, all_bones, all_weights)
+
+	# Slice back per surface.
+	var result: Array = []
+	result.resize(surface_count)
+	for s in range(surface_count):
+		var sb := PackedInt32Array()
+		var sw := PackedFloat32Array()
+		var c := counts[s]
+		sb.resize(c * 4)
+		sw.resize(c * 4)
+		var start := offsets[s] * 4
+		for k in range(c * 4):
+			sb[k] = all_bones[start + k]
+			sw[k] = all_weights[start + k]
+		result[s] = {"bones": sb, "weights": sw}
+	return result
+
+# HEAT_DIFFUSION core: seed each vertex with its single nearest bone, then relax
+# across the welded surface adjacency graph so influence flows ALONG the surface
+# and cannot jump a gap (armpit, between fingers, skirt-to-leg). Approximates
+# Blender Bone Heat / Mixamo skinning without a full linear solve. Operates on one
+# vertex+triangle buffer; callers pass the whole mesh (all surfaces) so material
+# seams diffuse too — see _solve_heat_for_mesh.
+func _assign_weights_heat(baked_verts: PackedVector3Array, arrays: Array, segments: Array, bones: PackedInt32Array, weights: PackedFloat32Array) -> void:
+	var n := baked_verts.size()
+	var bone_count := segments.size()
+	if bone_count == 0 or n == 0:
+		for vi in range(n):
+			weights[vi * 4] = 1.0
+		return
+
+	# Flatten segment endpoints into packed arrays so the seed loop avoids per-element
+	# Dictionary lookups (segments[j]["a"]) — those dominate on dense meshes.
+	var seg_a := PackedVector3Array()
+	var seg_b := PackedVector3Array()
+	var col_bone := PackedInt32Array()
+	seg_a.resize(bone_count)
+	seg_b.resize(bone_count)
+	col_bone.resize(bone_count)
+	for j in range(bone_count):
+		seg_a[j] = segments[j]["a"]
+		seg_b[j] = segments[j]["b"]
+		col_bone[j] = segments[j]["bone"]
+	var bone_count_eff := bone_count
+
+	# Build the surface graph. All meshes are position-welded onto representatives
+	# (sews UV/normal seams that glTF/FBX split into duplicate indices); we seed,
+	# diffuse, and collapse on representatives, then expand back to duplicates.
+	# A real gap (no shared vertex position) stays disconnected, so heat can't jump
+	# it; seams (coincident positions) are rejoined so it can cross them.
+	var adj := _build_vertex_adjacency(arrays, n)
+	var neighbours: Array = adj["neighbours"]   # per-representative neighbour lists
+	var rep: PackedInt32Array = adj["rep"]        # vertex index -> representative index
+
+	# Seed each REPRESENTATIVE with 1.0 on its single nearest segment. We solve on
+	# representatives (size n, but non-reps are skipped) and expand back at the end.
+	var heat := PackedFloat32Array()
+	heat.resize(n * bone_count_eff)
+	var seed_col := PackedInt32Array()  # nearest column per representative (for pinning)
+	seed_col.resize(n)
+	for r in range(n):
+		if rep[r] != r:
+			seed_col[r] = -1
+			continue
+		var p: Vector3 = baked_verts[r]
+		var nearest := 0
+		var nearest_d := INF
+		for j in range(bone_count):
+			var d: float = _distance_to_segment(p, seg_a[j], seg_b[j])
+			if d < nearest_d:
+				nearest_d = d
+				nearest = j
+		seed_col[r] = nearest
+		heat[r * bone_count_eff + nearest] = 1.0
+
+	# Relax: each pass moves every representative's heat toward the average of its
+	# neighbours (Laplacian smoothing), then re-injects a fraction of its original
+	# nearest-bone seed (soft pinning). The pin keeps locality from washing out:
+	# without it, enough passes converge a connected component toward one average
+	# label. Heat only flows along graph edges, which follow the welded surface, so
+	# it cannot cross a real gap (armpit, between fingers) that isn't bridged by
+	# coincident geometry — while UV/normal seams on a continuous surface ARE
+	# bridged by the position weld, so diffusion crosses them.
+	var passes := 14 if n <= 6000 else 8
+	var self_w := 0.5
+	var pin := 0.25       # re-injected seed strength per pass
+	var next := PackedFloat32Array()
+	next.resize(n * bone_count_eff)
+	for _p in range(passes):
+		for r in range(n):
+			if rep[r] != r:
+				continue
+			var base := r * bone_count_eff
+			var nb: PackedInt32Array = neighbours[r]
+			if nb.size() == 0:
+				for j in range(bone_count_eff):
+					next[base + j] = heat[base + j]
+			else:
+				var share := (1.0 - self_w) / float(nb.size())
+				for j in range(bone_count_eff):
+					next[base + j] = heat[base + j] * self_w
+				for ni in nb:
+					var nbase := ni * bone_count_eff
+					for j in range(bone_count_eff):
+						next[base + j] += heat[nbase + j] * share
+			# Soft-pin: scale the smoothed row by (1 - pin) and add `pin` back onto
+			# the original nearest-bone column. Since the smoothed row sums to ~1
+			# (row-stochastic update of unit-sum rows), the result stays a partition
+			# of unity: (1 - pin)*1 + pin == 1. This keeps each vertex anchored to its
+			# own nearest bone so locality doesn't wash out over many passes.
+			var sc := seed_col[r]
+			if sc != -1:
+				for j in range(bone_count_eff):
+					next[base + j] *= (1.0 - pin)
+				next[base + sc] += pin
+		# Swap buffers for the next pass.
+		var tmp := heat
+		heat = next
+		next = tmp
+
+	# Collapse each REPRESENTATIVE to top-4 bones, then expand to every vertex that
+	# welded onto it (duplicates share the representative's result).
+	for vi in range(n):
+		var src := rep[vi]
+		var base := src * bone_count_eff
+		var top_col := [0, 0, 0, 0]
+		var top_val := [0.0, 0.0, 0.0, 0.0]
+		for j in range(bone_count_eff):
+			var v: float = heat[base + j]
+			if v <= top_val[3]:
+				continue
+			# Insert v into the sorted top-4.
+			var slot := 3
+			while slot > 0 and v > top_val[slot - 1]:
+				top_val[slot] = top_val[slot - 1]
+				top_col[slot] = top_col[slot - 1]
+				slot -= 1
+			top_val[slot] = v
+			top_col[slot] = j
+		var total: float = top_val[0] + top_val[1] + top_val[2] + top_val[3]
+		if total <= 0.0:
+			bones[vi * 4] = col_bone[0]
+			weights[vi * 4] = 1.0
+			continue
+		for k in range(4):
+			bones[vi * 4 + k] = col_bone[top_col[k]]
+			weights[vi * 4 + k] = top_val[k] / total
+
+# Builds the surface graph for heat diffusion. Returns:
+#   { "neighbours": Array  — per-representative neighbour lists (PackedInt32Array),
+#     "rep":        PackedInt32Array — vertex index -> representative index }
+#
+# Vertices are welded by quantized position onto a representative, then edges are
+# added symmetrically between the representatives of each triangle's corners. The
+# weld is essential: glTF/FBX split a single continuous surface into multiple
+# vertex indices at every UV / normal / material seam (often the majority of
+# vertices), so an index-buffer-only graph would be shattered into disconnected
+# islands and heat could not diffuse across a seam. Welding by exact position
+# rejoins those duplicates without bridging a real GAP — two surfaces only merge
+# if they share a vertex position to ~0.1mm, which a deliberate gap (armpit,
+# finger spacing in a rest pose) does not. So this both fixes seam diffusion AND
+# keeps separated shells apart.
+func _build_vertex_adjacency(arrays: Array, vertex_count: int) -> Dictionary:
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+	var indexed := indices.size() > 0
+
+	# Weld coincident positions onto a shared representative (sews UV/normal seams).
+	var rep := _build_position_weld(arrays[Mesh.ARRAY_VERTEX])
+
+	var sets: Array = []
+	sets.resize(vertex_count)
+	for i in range(vertex_count):
+		sets[i] = {}
+
+	var tri_count := indices.size() / 3 if indexed else vertex_count / 3
+	for t in range(tri_count):
+		var ia := indices[t * 3] if indexed else t * 3
+		var ib := indices[t * 3 + 1] if indexed else t * 3 + 1
+		var ic := indices[t * 3 + 2] if indexed else t * 3 + 2
+		# Map every corner onto its weld representative.
+		var a: int = rep[ia]
+		var b: int = rep[ib]
+		var c: int = rep[ic]
+		if a >= vertex_count or b >= vertex_count or c >= vertex_count:
+			continue
+		# Symmetric edges between the triangle's representative corners.
+		if a != b:
+			(sets[a] as Dictionary)[b] = true
+			(sets[b] as Dictionary)[a] = true
+		if b != c:
+			(sets[b] as Dictionary)[c] = true
+			(sets[c] as Dictionary)[b] = true
+		if a != c:
+			(sets[a] as Dictionary)[c] = true
+			(sets[c] as Dictionary)[a] = true
+
+	var neighbours: Array = []
+	neighbours.resize(vertex_count)
+	for i in range(vertex_count):
+		var arr := PackedInt32Array()
+		for k in (sets[i] as Dictionary):
+			arr.append(k)
+		neighbours[i] = arr
+	return {"neighbours": neighbours, "rep": rep}
+
+# Maps each vertex index to a representative index for all vertices sharing its
+# position (quantized), so duplicated seam/corner vertices act as one node.
+func _build_position_weld(verts: PackedVector3Array) -> PackedInt32Array:
+	var weld := PackedInt32Array()
+	weld.resize(verts.size())
+	var seen := {}
+	for i in range(verts.size()):
+		var p: Vector3 = verts[i]
+		# Quantize to ~0.1 mm so floating-point duplicates collapse together.
+		var key := "%d_%d_%d" % [roundi(p.x * 10000.0), roundi(p.y * 10000.0), roundi(p.z * 10000.0)]
+		if seen.has(key):
+			weld[i] = seen[key]
+		else:
+			seen[key] = i
+			weld[i] = i
+	return weld
 
 # Assigns up to 4 bone weights to a point. Only bones within a falloff band of
 # the nearest one contribute, so distant parts (skirt hem, hair tips) bind
