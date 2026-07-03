@@ -5,4 +5,10 @@ export_presets.cfg
 .superpowers/
 *.tmp
 *.log
+dist/
+captures/
+*.task
+_auto_rig_lab_capture.png
+_auto_rig_lab_capture.png.import
+genshin_toon_shader_lab/
 
